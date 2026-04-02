@@ -1,11 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  View, Text, StyleSheet, FlatList,
+  TouchableOpacity, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { loadBusiness } from '../../data/BusinessStore';
+import { generatePaymentPdf } from '../../data/PdfGenerator';
 import { colors } from '../../theme/colors';
 
 export default function PaymentsScreen({ route, navigation }) {
@@ -24,6 +26,14 @@ export default function PaymentsScreen({ route, navigation }) {
 
   const cur = biz?.meta?.currency || 'PKR';
   const totalPayments = payments.reduce((s, p) => s + (p.amount || 0), 0);
+
+  const handleSharePdf = async (payment) => {
+    try {
+      await generatePaymentPdf(payment, biz);
+    } catch (e) {
+      Alert.alert('Error', 'Could not generate PDF.');
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -62,46 +72,65 @@ export default function PaymentsScreen({ route, navigation }) {
           </View>
         }
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.card}
-            onPress={() =>
-              navigation.navigate('PaymentForm', {
-                businessId,
-                paymentId: item.id,
-              })
-            }
-          >
-            <View style={styles.iconWrap}>
-              <Ionicons
-                name="arrow-up-circle-outline"
-                size={22}
-                color="#EF4444"
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>
-                {item.supplierName || '—'}
+          <View style={styles.card}>
+            <View style={styles.cardLeft}>
+              <View style={styles.iconWrap}>
+                <Ionicons
+                  name="arrow-up-circle-outline"
+                  size={22}
+                  color="#EF4444"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>
+                  {item.supplierName || '—'}
+                </Text>
+                <Text style={styles.cardSub}>
+                  {item.accountName || 'Cash'} ·{' '}
+                  {new Date(item.date).toLocaleDateString()}
+                </Text>
+                {item.reference ? (
+                  <Text style={styles.cardRef}>Ref: {item.reference}</Text>
+                ) : null}
+              </View>
+              <Text style={styles.cardAmount}>
+                − {cur} {(item.amount || 0).toLocaleString()}
               </Text>
-              <Text style={styles.cardSub}>
-                {item.accountName || 'Cash on Hand'} ·{' '}
-                {new Date(item.date).toLocaleDateString()}
-              </Text>
-              {item.reference ? (
-                <Text style={styles.cardRef}>Ref: {item.reference}</Text>
-              ) : null}
             </View>
-            <Text style={styles.cardAmount}>
-              − {cur} {(item.amount || 0).toLocaleString()}
-            </Text>
-          </TouchableOpacity>
+            <View style={styles.cardActions}>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() =>
+                  navigation.navigate('PaymentForm', {
+                    businessId,
+                    paymentId: item.id,
+                  })
+                }
+              >
+                <Ionicons
+                  name="create-outline"
+                  size={16}
+                  color={colors.primary}
+                />
+                <Text style={styles.actionText}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionBtnRed]}
+                onPress={() => handleSharePdf(item)}
+              >
+                <Ionicons name="share-outline" size={16} color="#EF4444" />
+                <Text style={[styles.actionText, { color: '#EF4444' }]}>
+                  PDF
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
       />
 
       <TouchableOpacity
         style={styles.fab}
-        onPress={() =>
-          navigation.navigate('PaymentForm', { businessId })
-        }
+        onPress={() => navigation.navigate('PaymentForm', { businessId })}
       >
         <Ionicons name="add" size={30} color="#fff" />
       </TouchableOpacity>
@@ -139,13 +168,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     shadowColor: '#000',
     shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 1,
+  },
+  cardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 10,
   },
   iconWrap: {
     width: 44,
@@ -159,6 +191,26 @@ const styles = StyleSheet.create({
   cardSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   cardRef: { fontSize: 12, color: colors.textTertiary, marginTop: 1 },
   cardAmount: { fontSize: 15, fontWeight: '700', color: '#EF4444' },
+  cardActions: {
+    flexDirection: 'row',
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: 10,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  actionBtnRed: { borderColor: '#FECACA', backgroundColor: '#FFF5F5' },
+  actionText: { fontSize: 13, fontWeight: '600', color: colors.primary },
   emptyBox: {
     alignItems: 'center',
     paddingTop: 80,
@@ -166,11 +218,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   emptyTitle: { fontSize: 17, fontWeight: '600', color: colors.textSecondary },
-  emptySub: {
-    fontSize: 13,
-    color: colors.textTertiary,
-    textAlign: 'center',
-  },
+  emptySub: { fontSize: 13, color: colors.textTertiary, textAlign: 'center' },
   fab: {
     position: 'absolute',
     bottom: 28,

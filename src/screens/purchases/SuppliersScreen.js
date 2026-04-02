@@ -65,7 +65,7 @@ export default function SuppliersScreen({ route, navigation }) {
             <TouchableOpacity
               style={styles.card}
               onPress={() =>
-                navigation.navigate('SupplierForm', {
+                navigation.navigate('SupplierLedger', {
                   businessId,
                   supplierId: item.id,
                 })

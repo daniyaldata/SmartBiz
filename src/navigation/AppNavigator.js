@@ -19,8 +19,10 @@ import SalesInvoiceViewScreen from '../screens/sales/SalesInvoiceViewScreen';
 
 import SuppliersScreen from '../screens/purchases/SuppliersScreen';
 import SupplierFormScreen from '../screens/purchases/SupplierFormScreen';
+import SupplierLedgerScreen from '../screens/purchases/SupplierLedgerScreen';
 import PurchaseInvoicesScreen from '../screens/purchases/PurchaseInvoicesScreen';
 import PurchaseInvoiceFormScreen from '../screens/purchases/PurchaseInvoiceFormScreen';
+import PurchaseInvoiceViewScreen from '../screens/purchases/PurchaseInvoiceViewScreen';
 
 import AccountsScreen from '../screens/money/AccountsScreen';
 import ReceiptsScreen from '../screens/money/ReceiptsScreen';
@@ -119,7 +121,6 @@ export default function AppNavigator({ route }) {
         initialParams={route?.params}
       />
 
-      {/* Sales screens */}
       <Stack.Screen name="Customers" component={CustomersScreen} />
       <Stack.Screen name="CustomerForm" component={CustomerFormScreen} />
       <Stack.Screen name="CustomerLedger" component={CustomerLedgerScreen} />
@@ -127,20 +128,19 @@ export default function AppNavigator({ route }) {
       <Stack.Screen name="SalesInvoiceForm" component={SalesInvoiceFormScreen} />
       <Stack.Screen name="SalesInvoiceView" component={SalesInvoiceViewScreen} />
 
-      {/* Purchases screens */}
       <Stack.Screen name="Suppliers" component={SuppliersScreen} />
       <Stack.Screen name="SupplierForm" component={SupplierFormScreen} />
+      <Stack.Screen name="SupplierLedger" component={SupplierLedgerScreen} />
       <Stack.Screen name="PurchaseInvoices" component={PurchaseInvoicesScreen} />
       <Stack.Screen name="PurchaseInvoiceForm" component={PurchaseInvoiceFormScreen} />
+      <Stack.Screen name="PurchaseInvoiceView" component={PurchaseInvoiceViewScreen} />
 
-      {/* Money screens */}
       <Stack.Screen name="Accounts" component={AccountsScreen} />
       <Stack.Screen name="Receipts" component={ReceiptsScreen} />
       <Stack.Screen name="ReceiptForm" component={ReceiptFormScreen} />
       <Stack.Screen name="Payments" component={PaymentsScreen} />
       <Stack.Screen name="PaymentForm" component={PaymentFormScreen} />
 
-      {/* More screens */}
       <Stack.Screen name="Inventory" component={InventoryScreen} />
       <Stack.Screen name="ItemForm" component={ItemFormScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
