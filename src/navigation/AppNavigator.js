@@ -29,6 +29,7 @@ import ReceiptsScreen from '../screens/money/ReceiptsScreen';
 import ReceiptFormScreen from '../screens/money/ReceiptFormScreen';
 import PaymentsScreen from '../screens/money/PaymentsScreen';
 import PaymentFormScreen from '../screens/money/PaymentFormScreen';
+import AccountLedgerScreen from '../screens/money/AccountLedgerScreen';
 
 import InventoryScreen from '../screens/more/InventoryScreen';
 import ItemFormScreen from '../screens/more/ItemFormScreen';
@@ -136,6 +137,7 @@ export default function AppNavigator({ route }) {
       <Stack.Screen name="PurchaseInvoiceView" component={PurchaseInvoiceViewScreen} />
 
       <Stack.Screen name="Accounts" component={AccountsScreen} />
+      <Stack.Screen name="AccountLedger" component={AccountLedgerScreen} />
       <Stack.Screen name="Receipts" component={ReceiptsScreen} />
       <Stack.Screen name="ReceiptForm" component={ReceiptFormScreen} />
       <Stack.Screen name="Payments" component={PaymentsScreen} />
