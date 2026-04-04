@@ -24,14 +24,6 @@ const blocks = [
     sub: 'Track what you owe',
   },
   {
-    label: 'Payments',
-    icon: 'cash-outline',
-    color: '#10B981',
-    bg: '#ECFDF5',
-    route: 'Payments',
-    sub: 'Record payments made',
-  },
-  {
     label: 'Purchase Orders',
     icon: 'clipboard-outline',
     color: '#8B5CF6',

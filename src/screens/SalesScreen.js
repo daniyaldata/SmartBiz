@@ -24,14 +24,6 @@ const blocks = [
     sub: 'Create, track, share PDF',
   },
   {
-  label: 'Receipts',
-  icon: 'cash-outline',
-  color: '#10B981',
-  bg: '#ECFDF5',
-  route: 'SalesInvoices',
-  sub: 'Record payments received',
-},
-  {
     label: 'Sales Quotes',
     icon: 'clipboard-outline',
     color: '#F59E0B',
@@ -54,9 +46,7 @@ export default function SalesScreen({ route, navigation }) {
           <TouchableOpacity
             key={b.label}
             style={styles.block}
-            onPress={() =>
-              navigation.navigate(b.route, { businessId })
-            }
+            onPress={() => navigation.navigate(b.route, { businessId })}
           >
             <View style={[styles.iconWrap, { backgroundColor: b.bg }]}>
               <Ionicons name={b.icon} size={28} color={b.color} />

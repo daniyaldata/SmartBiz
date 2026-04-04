@@ -10,14 +10,58 @@ const sections = [
   {
     title: 'Inventory',
     items: [
-      { label: 'Inventory Items', icon: 'cube-outline', color: '#3B82F6', bg: '#EFF6FF', route: 'Inventory' },
+      {
+        label: 'Inventory Items',
+        icon: 'cube-outline',
+        color: '#3B82F6',
+        bg: '#EFF6FF',
+        route: 'Inventory',
+      },
+      {
+        label: 'Inventory Write-offs',
+        icon: 'alert-circle-outline',
+        color: '#EF4444',
+        bg: '#FEF2F2',
+        route: 'InventoryWriteOff',
+      },
+    ],
+  },
+  {
+    title: 'Accounting',
+    items: [
+      {
+        label: 'Income & Expense Accounts',
+        icon: 'bar-chart-outline',
+        color: '#10B981',
+        bg: '#ECFDF5',
+        route: 'AccountsManager',
+      },
+      {
+        label: 'Journal Entries',
+        icon: 'book-outline',
+        color: '#8B5CF6',
+        bg: '#F5F3FF',
+        route: 'JournalEntries',
+      },
     ],
   },
   {
     title: 'Business',
     items: [
-      { label: 'Settings', icon: 'settings-outline', color: '#6B7280', bg: '#F9FAFB', route: 'Settings' },
-      { label: 'Backup & Restore', icon: 'cloud-outline', color: '#10B981', bg: '#ECFDF5', route: 'BackupRestore' },
+      {
+        label: 'Settings',
+        icon: 'settings-outline',
+        color: '#6B7280',
+        bg: '#F9FAFB',
+        route: 'Settings',
+      },
+      {
+        label: 'Backup & Restore',
+        icon: 'cloud-outline',
+        color: '#0077C5',
+        bg: '#E8F4FD',
+        route: 'BackupRestore',
+      },
     ],
   },
 ];
@@ -42,7 +86,9 @@ export default function MoreScreen({ route, navigation }) {
                     styles.row,
                     idx < section.items.length - 1 && styles.rowBorder,
                   ]}
-                  onPress={() => navigation.navigate(item.route, { businessId })}
+                  onPress={() =>
+                    navigation.navigate(item.route, { businessId })
+                  }
                 >
                   <View style={[styles.iconWrap, { backgroundColor: item.bg }]}>
                     <Ionicons name={item.icon} size={20} color={item.color} />

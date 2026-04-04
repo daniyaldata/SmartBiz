@@ -1,16 +1,14 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList,
-  TouchableOpacity, Alert,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { loadBusiness, deleteTransaction } from '../../data/BusinessStore';
-import { generatePaymentPdf } from '../../data/PdfGenerator';
 import { colors } from '../../theme/colors';
 
-export default function PaymentsScreen({ route, navigation }) {
+export default function TransfersScreen({ route, navigation }) {
   const businessId = route?.params?.businessId;
   const [biz, setBiz] = useState(null);
 
@@ -20,19 +18,17 @@ export default function PaymentsScreen({ route, navigation }) {
     }, [businessId])
   );
 
-  const payments = (biz?.transactions || [])
-    .filter(t => t.transactionType === 'payment')
+  const transfers = (biz?.transactions || [])
+    .filter(t => t.transactionType === 'transfer')
     .sort((a, b) => new Date(b.date) - new Date(a.date));
 
   const cur = biz?.meta?.currency || 'PKR';
-  const total = payments.reduce((s, p) => s + (p.amount || 0), 0);
 
   const handleDelete = (txn) => {
-    Alert.alert('Delete Payment', 'This will reverse all effects on invoices and account balances.', [
+    Alert.alert('Delete Transfer', 'This will reverse the transfer between accounts.', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Delete',
-        style: 'destructive',
+        text: 'Delete', style: 'destructive',
         onPress: async () => {
           const updated = await deleteTransaction(biz, txn.id);
           setBiz(updated);
@@ -41,66 +37,50 @@ export default function PaymentsScreen({ route, navigation }) {
     ]);
   };
 
-  const handlePdf = async (txn) => {
-    try {
-      await generatePaymentPdf(txn, biz);
-    } catch (e) {
-      Alert.alert('Error', 'Could not generate PDF.');
-    }
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.title}>Payments</Text>
+        <Text style={styles.title}>Transfers</Text>
         <View style={{ width: 22 }} />
       </View>
 
-      {payments.length > 0 && (
-        <View style={styles.summaryBar}>
-          <Text style={styles.summaryLabel}>Total paid out</Text>
-          <Text style={styles.summaryValue}>
-            {cur} {total.toLocaleString()}
-          </Text>
-        </View>
-      )}
-
       <FlatList
-        data={payments}
-        keyExtractor={p => p.id}
+        data={transfers}
+        keyExtractor={t => t.id}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           <View style={styles.emptyBox}>
-            <Ionicons name="arrow-up-circle-outline" size={52} color={colors.textTertiary} />
-            <Text style={styles.emptyTitle}>No payments yet</Text>
-            <Text style={styles.emptySub}>Tap + to record a payment</Text>
+            <Ionicons name="swap-horizontal-outline" size={52} color={colors.textTertiary} />
+            <Text style={styles.emptyTitle}>No transfers yet</Text>
+            <Text style={styles.emptySub}>Tap + to transfer between accounts</Text>
           </View>
         }
         renderItem={({ item }) => (
           <View style={styles.card}>
             <View style={styles.cardTop}>
               <View style={styles.iconWrap}>
-                <Ionicons name="arrow-up-circle-outline" size={22} color="#EF4444" />
+                <Ionicons name="swap-horizontal-outline" size={22} color="#8B5CF6" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>
-                  {item.partyName || item.expenseAccountName || 'Payment'}
-                </Text>
+                <View style={styles.transferFlow}>
+                  <Text style={styles.fromAcc} numberOfLines={1}>
+                    {item.fromAccountName}
+                  </Text>
+                  <Ionicons name="arrow-forward" size={14} color={colors.textTertiary} />
+                  <Text style={styles.toAcc} numberOfLines={1}>
+                    {item.toAccountName}
+                  </Text>
+                </View>
                 <Text style={styles.cardSub}>
-                  {item.accountName || 'Cash'} · {new Date(item.date).toLocaleDateString()}
+                  {new Date(item.date).toLocaleDateString()}
+                  {item.reference ? ` · Ref: ${item.reference}` : ''}
                 </Text>
-                {item.linkedInvoiceId && (
-                  <Text style={styles.cardRef}>Against bill</Text>
-                )}
-                {item.reference ? (
-                  <Text style={styles.cardRef}>Ref: {item.reference}</Text>
-                ) : null}
               </View>
               <Text style={styles.cardAmount}>
-                − {cur} {(item.amount || 0).toLocaleString()}
+                {cur} {(item.amount || 0).toLocaleString()}
               </Text>
             </View>
             <View style={styles.cardActions}>
@@ -112,13 +92,6 @@ export default function PaymentsScreen({ route, navigation }) {
               >
                 <Ionicons name="create-outline" size={15} color={colors.primary} />
                 <Text style={styles.actionText}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionBtn, { borderColor: '#FECACA' }]}
-                onPress={() => handlePdf(item)}
-              >
-                <Ionicons name="share-outline" size={15} color="#EF4444" />
-                <Text style={[styles.actionText, { color: '#EF4444' }]}>PDF</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, { borderColor: '#FECACA' }]}
@@ -135,7 +108,7 @@ export default function PaymentsScreen({ route, navigation }) {
       <TouchableOpacity
         style={styles.fab}
         onPress={() => navigation.navigate('TransactionForm', {
-          businessId, defaultType: 'payment',
+          businessId, defaultType: 'transfer',
         })}
       >
         <Ionicons name="add" size={30} color="#fff" />
@@ -152,13 +125,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
-  summaryBar: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: '#FEF2F2', paddingHorizontal: 20, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: '#FECACA',
-  },
-  summaryLabel: { fontSize: 13, color: '#991B1B', fontWeight: '500' },
-  summaryValue: { fontSize: 16, fontWeight: '700', color: '#991B1B' },
   list: { padding: 12, gap: 8, paddingBottom: 100 },
   card: {
     backgroundColor: '#fff', borderRadius: 14, padding: 14,
@@ -167,12 +133,13 @@ const styles = StyleSheet.create({
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
   iconWrap: {
     width: 44, height: 44, borderRadius: 12,
-    backgroundColor: '#FEF2F2', justifyContent: 'center', alignItems: 'center',
+    backgroundColor: '#F5F3FF', justifyContent: 'center', alignItems: 'center',
   },
-  cardTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  cardSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  cardRef: { fontSize: 11, color: colors.textTertiary, marginTop: 1 },
-  cardAmount: { fontSize: 15, fontWeight: '700', color: '#EF4444' },
+  transferFlow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },
+  fromAcc: { fontSize: 13, fontWeight: '600', color: '#991B1B', flex: 1 },
+  toAcc: { fontSize: 13, fontWeight: '600', color: '#14532D', flex: 1 },
+  cardSub: { fontSize: 12, color: colors.textSecondary },
+  cardAmount: { fontSize: 15, fontWeight: '700', color: '#8B5CF6' },
   cardActions: {
     flexDirection: 'row', gap: 6,
     borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10,
@@ -187,9 +154,9 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 13, color: colors.textTertiary, textAlign: 'center' },
   fab: {
     position: 'absolute', bottom: 28, right: 20,
-    backgroundColor: '#EF4444', width: 58, height: 58, borderRadius: 29,
+    backgroundColor: '#8B5CF6', width: 58, height: 58, borderRadius: 29,
     justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#EF4444', shadowOpacity: 0.4, shadowRadius: 12,
+    shadowColor: '#8B5CF6', shadowOpacity: 0.4, shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 }, elevation: 8,
   },
 });

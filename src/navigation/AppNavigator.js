@@ -25,51 +25,28 @@ import PurchaseInvoiceFormScreen from '../screens/purchases/PurchaseInvoiceFormS
 import PurchaseInvoiceViewScreen from '../screens/purchases/PurchaseInvoiceViewScreen';
 
 import AccountsScreen from '../screens/money/AccountsScreen';
-import ReceiptsScreen from '../screens/money/ReceiptsScreen';
-import ReceiptFormScreen from '../screens/money/ReceiptFormScreen';
-import PaymentsScreen from '../screens/money/PaymentsScreen';
-import PaymentFormScreen from '../screens/money/PaymentFormScreen';
 import AccountLedgerScreen from '../screens/money/AccountLedgerScreen';
+import ReceiptsScreen from '../screens/money/ReceiptsScreen';
+import PaymentsScreen from '../screens/money/PaymentsScreen';
+import TransfersScreen from '../screens/money/TransfersScreen';
+import TransactionFormScreen from '../screens/money/TransactionFormScreen';
 
 import InventoryScreen from '../screens/more/InventoryScreen';
 import ItemFormScreen from '../screens/more/ItemFormScreen';
 import SettingsScreen from '../screens/more/SettingsScreen';
 import BackupRestoreScreen from '../screens/more/BackupRestoreScreen';
-
+import AccountsManagerScreen from '../screens/more/AccountsManagerScreen';
+import InventoryWriteOffScreen from '../screens/more/InventoryWriteOffScreen';
+import JournalEntriesScreen from '../screens/more/JournalEntriesScreen';
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
 const tabs = [
-  {
-    name: 'Dashboard',
-    component: DashboardScreen,
-    icon: 'grid-outline',
-    iconFocused: 'grid',
-  },
-  {
-    name: 'Money',
-    component: MoneyScreen,
-    icon: 'wallet-outline',
-    iconFocused: 'wallet',
-  },
-  {
-    name: 'Sales',
-    component: SalesScreen,
-    icon: 'trending-up-outline',
-    iconFocused: 'trending-up',
-  },
-  {
-    name: 'Purchases',
-    component: PurchasesScreen,
-    icon: 'cart-outline',
-    iconFocused: 'cart',
-  },
-  {
-    name: 'More',
-    component: MoreScreen,
-    icon: 'menu-outline',
-    iconFocused: 'menu',
-  },
+  { name: 'Dashboard', component: DashboardScreen, icon: 'grid-outline', iconFocused: 'grid' },
+  { name: 'Money', component: MoneyScreen, icon: 'wallet-outline', iconFocused: 'wallet' },
+  { name: 'Sales', component: SalesScreen, icon: 'trending-up-outline', iconFocused: 'trending-up' },
+  { name: 'Purchases', component: PurchasesScreen, icon: 'cart-outline', iconFocused: 'cart' },
+  { name: 'More', component: MoreScreen, icon: 'menu-outline', iconFocused: 'menu' },
 ];
 
 function TabNavigator({ route }) {
@@ -116,11 +93,7 @@ function TabNavigator({ route }) {
 export default function AppNavigator({ route }) {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen
-        name="Tabs"
-        component={TabNavigator}
-        initialParams={route?.params}
-      />
+      <Stack.Screen name="Tabs" component={TabNavigator} initialParams={route?.params} />
 
       <Stack.Screen name="Customers" component={CustomersScreen} />
       <Stack.Screen name="CustomerForm" component={CustomerFormScreen} />
@@ -139,14 +112,17 @@ export default function AppNavigator({ route }) {
       <Stack.Screen name="Accounts" component={AccountsScreen} />
       <Stack.Screen name="AccountLedger" component={AccountLedgerScreen} />
       <Stack.Screen name="Receipts" component={ReceiptsScreen} />
-      <Stack.Screen name="ReceiptForm" component={ReceiptFormScreen} />
       <Stack.Screen name="Payments" component={PaymentsScreen} />
-      <Stack.Screen name="PaymentForm" component={PaymentFormScreen} />
+      <Stack.Screen name="Transfers" component={TransfersScreen} />
+      <Stack.Screen name="TransactionForm" component={TransactionFormScreen} />
 
       <Stack.Screen name="Inventory" component={InventoryScreen} />
       <Stack.Screen name="ItemForm" component={ItemFormScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen name="BackupRestore" component={BackupRestoreScreen} />
+      <Stack.Screen name="AccountsManager" component={AccountsManagerScreen} />
+      <Stack.Screen name="InventoryWriteOff" component={InventoryWriteOffScreen} />
+      <Stack.Screen name="JournalEntries" component={JournalEntriesScreen} />
     </Stack.Navigator>
   );
 }
