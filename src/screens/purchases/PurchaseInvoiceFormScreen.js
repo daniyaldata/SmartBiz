@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
-  TouchableOpacity, Alert, ActivityIndicator, Modal, FlatList,
+  TouchableOpacity, Alert, ActivityIndicator, FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { loadBusiness, saveBusiness, generateId } from '../../data/BusinessStore';
+import ModalSheet from '../../components/ModalSheet';
+import DateField from '../../components/DateField';
 import { colors } from '../../theme/colors';
 
 export default function PurchaseInvoiceFormScreen({ route, navigation }) {
@@ -21,6 +23,8 @@ export default function PurchaseInvoiceFormScreen({ route, navigation }) {
     { id: generateId(), description: '', qty: '1', rate: '' },
   ]);
   const [showSupplierPicker, setShowSupplierPicker] = useState(false);
+  const [showItemPicker, setShowItemPicker] = useState(false);
+  const [activeLineId, setActiveLineId] = useState(null);
 
   const editing = !!invoiceId;
 
@@ -30,14 +34,14 @@ export default function PurchaseInvoiceFormScreen({ route, navigation }) {
       if (invoiceId) {
         const inv = b?.purchaseInvoices?.find(i => i.id === invoiceId);
         if (inv) {
-          const sup = b.suppliers?.find(s => s.id === inv.supplierId);
-          setSupplier(sup || null);
+          setSupplier(b.suppliers?.find(s => s.id === inv.supplierId) || null);
           setDate(inv.date || '');
           setDueDate(inv.dueDate || '');
           setNotes(inv.notes || '');
-          setLines(inv.lines?.length ? inv.lines : [
-            { id: generateId(), description: '', qty: '1', rate: '' },
-          ]);
+          setLines(inv.lines?.length
+            ? inv.lines
+            : [{ id: generateId(), description: '', qty: '1', rate: '' }]
+          );
         }
       }
     });
@@ -107,8 +111,7 @@ export default function PurchaseInvoiceFormScreen({ route, navigation }) {
     Alert.alert('Delete Invoice', 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Delete',
-        style: 'destructive',
+        text: 'Delete', style: 'destructive',
         onPress: async () => {
           const updated = {
             ...biz,
@@ -159,34 +162,31 @@ export default function PurchaseInvoiceFormScreen({ route, navigation }) {
           <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
 
-        <View style={styles.row2}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Date</Text>
-            <TextInput
-              style={styles.input}
-              value={date}
-              onChangeText={setDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={colors.textTertiary}
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Due date</Text>
-            <TextInput
-              style={styles.input}
-              value={dueDate}
-              onChangeText={setDueDate}
-              placeholder="Optional"
-              placeholderTextColor={colors.textTertiary}
-            />
-          </View>
-        </View>
+        <DateField
+          label="Date"
+          value={date}
+          onChange={setDate}
+          dateFormat={biz?.settings?.dateFormat}
+        />
+        <DateField
+          label="Due date"
+          value={dueDate}
+          onChange={setDueDate}
+          dateFormat={biz?.settings?.dateFormat}
+          optional
+        />
 
         <Text style={styles.label}>Items</Text>
         {lines.map((line, idx) => (
           <View key={line.id} style={styles.lineCard}>
             <View style={styles.lineTop}>
               <Text style={styles.lineNum}>Item {idx + 1}</Text>
+              <TouchableOpacity onPress={() => {
+                setActiveLineId(line.id);
+                setShowItemPicker(true);
+              }}>
+                <Text style={styles.pickItemBtn}>Pick from inventory</Text>
+              </TouchableOpacity>
               {lines.length > 1 && (
                 <TouchableOpacity onPress={() => removeLine(line.id)}>
                   <Ionicons name="trash-outline" size={17} color={colors.danger} />
@@ -223,7 +223,9 @@ export default function PurchaseInvoiceFormScreen({ route, navigation }) {
               </View>
               <View style={styles.lineTotalWrap}>
                 <Text style={styles.lineTotalText}>
-                  {((parseFloat(line.qty) || 0) * (parseFloat(line.rate) || 0)).toLocaleString()}
+                  {(
+                    (parseFloat(line.qty) || 0) * (parseFloat(line.rate) || 0)
+                  ).toLocaleString()}
                 </Text>
               </View>
             </View>
@@ -237,7 +239,7 @@ export default function PurchaseInvoiceFormScreen({ route, navigation }) {
 
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>Total</Text>
-          <Text style={styles.totalValue}>
+          <Text style={[styles.totalValue, { color: '#EF4444' }]}>
             {biz.meta?.currency} {total.toLocaleString()}
           </Text>
         </View>
@@ -260,39 +262,77 @@ export default function PurchaseInvoiceFormScreen({ route, navigation }) {
         )}
       </ScrollView>
 
-      <Modal visible={showSupplierPicker} animationType="slide">
-        <SafeAreaView style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select Supplier</Text>
-            <TouchableOpacity onPress={() => setShowSupplierPicker(false)}>
-              <Ionicons name="close" size={24} color={colors.textPrimary} />
+      <ModalSheet
+        visible={showSupplierPicker}
+        onClose={() => setShowSupplierPicker(false)}
+        title="Select Supplier"
+      >
+        <FlatList
+          data={biz.suppliers || []}
+          keyExtractor={s => s.id}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.modalItem}
+              onPress={() => {
+                setSupplier(item);
+                setShowSupplierPicker(false);
+              }}
+            >
+              <Text style={styles.modalItemName}>{item.displayName}</Text>
+              {item.phone
+                ? <Text style={styles.modalItemSub}>{item.phone}</Text>
+                : null}
             </TouchableOpacity>
-          </View>
-          <FlatList
-            data={biz.suppliers || []}
-            keyExtractor={s => s.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.modalItem}
-                onPress={() => {
-                  setSupplier(item);
-                  setShowSupplierPicker(false);
-                }}
-              >
-                <Text style={styles.modalItemName}>{item.displayName}</Text>
-                {item.phone ? (
-                  <Text style={styles.modalItemSub}>{item.phone}</Text>
-                ) : null}
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.modalEmpty}>
-                No suppliers found.{'\n'}Add one from Purchases → Suppliers.
-              </Text>
-            }
-          />
-        </SafeAreaView>
-      </Modal>
+          )}
+          ListEmptyComponent={
+            <Text style={styles.modalEmpty}>
+              No suppliers. Add one from Purchases → Suppliers.
+            </Text>
+          }
+        />
+      </ModalSheet>
+
+      <ModalSheet
+        visible={showItemPicker}
+        onClose={() => setShowItemPicker(false)}
+        title="Select Item"
+      >
+        <FlatList
+          data={biz.items || []}
+          keyExtractor={i => i.id}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.modalItem}
+              onPress={() => {
+                updateLine(activeLineId, 'description', item.name);
+                updateLine(activeLineId, 'rate', item.costPrice?.toString() || '');
+                setShowItemPicker(false);
+                setActiveLineId(null);
+              }}
+            >
+              <View style={styles.modalItemRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalItemName}>{item.name}</Text>
+                  <Text style={styles.modalItemSub}>
+                    Cost price: {biz.meta?.currency}{' '}
+                    {(item.costPrice || 0).toLocaleString()}
+                  </Text>
+                </View>
+                {item.stock !== undefined && (
+                  <View style={styles.stockBadge}>
+                    <Text style={styles.stockText}>Stock: {item.stock}</Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
+            <Text style={styles.modalEmpty}>
+              No items. Add from More → Inventory Items.
+            </Text>
+          }
+        />
+      </ModalSheet>
     </SafeAreaView>
   );
 }
@@ -301,127 +341,70 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   headerTitle: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
   saveBtn: { fontSize: 16, color: colors.primary, fontWeight: '700' },
   form: { padding: 16, paddingBottom: 48 },
   label: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 7,
-    marginTop: 16,
+    fontSize: 12, fontWeight: '700', color: colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+    marginBottom: 7, marginTop: 16,
   },
   input: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: 11,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-    fontSize: 15,
-    color: colors.textPrimary,
-    marginBottom: 8,
+    borderWidth: 1.5, borderColor: colors.border, borderRadius: 11,
+    paddingHorizontal: 13, paddingVertical: 11,
+    fontSize: 15, color: colors.textPrimary, marginBottom: 8,
   },
   picker: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: 11,
-    paddingHorizontal: 13,
-    paddingVertical: 13,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    borderWidth: 1.5, borderColor: colors.border, borderRadius: 11,
+    paddingHorizontal: 13, paddingVertical: 13,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 8,
   },
   pickerValue: { fontSize: 15, color: colors.textPrimary },
   pickerPlaceholder: { fontSize: 15, color: colors.textTertiary },
   row2: { flexDirection: 'row', gap: 8 },
   lineCard: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-    backgroundColor: colors.background,
+    borderWidth: 1, borderColor: colors.border, borderRadius: 12,
+    padding: 12, marginBottom: 10, backgroundColor: colors.background,
   },
-  lineTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  lineNum: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-  lineTotalWrap: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'flex-end',
-    paddingBottom: 8,
-  },
+  lineTop: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  lineNum: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+  pickItemBtn: { fontSize: 13, color: colors.primary, fontWeight: '600' },
+  lineTotalWrap: { flex: 1, justifyContent: 'center', alignItems: 'flex-end', paddingBottom: 8 },
   lineTotalText: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   addLineBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 8, paddingVertical: 12,
   },
   addLineText: { fontSize: 15, color: colors.primary, fontWeight: '600' },
   totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderTopWidth: 1.5,
-    borderTopColor: colors.border,
-    paddingTop: 16,
-    marginTop: 4,
-    marginBottom: 16,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    borderTopWidth: 1.5, borderTopColor: colors.border,
+    paddingTop: 16, marginTop: 4, marginBottom: 16,
   },
   totalLabel: { fontSize: 16, fontWeight: '700', color: colors.textPrimary },
-  totalValue: { fontSize: 22, fontWeight: '700', color: '#EF4444' },
+  totalValue: { fontSize: 22, fontWeight: '700' },
   deleteBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderWidth: 1.5,
-    borderColor: colors.danger,
-    borderRadius: 12,
-    paddingVertical: 14,
-    marginTop: 24,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, borderWidth: 1.5, borderColor: colors.danger,
+    borderRadius: 12, paddingVertical: 14, marginTop: 24,
   },
   deleteBtnText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
-  modal: { flex: 1, backgroundColor: '#fff' },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
-  modalItem: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
+  modalItem: { padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalItemRow: { flexDirection: 'row', alignItems: 'center' },
   modalItemName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
   modalItemSub: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  stockBadge: {
+    backgroundColor: '#FEF3C7', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  stockText: { fontSize: 12, color: '#92400E', fontWeight: '600' },
   modalEmpty: {
-    textAlign: 'center',
-    color: colors.textTertiary,
-    padding: 40,
-    fontSize: 14,
-    lineHeight: 22,
+    textAlign: 'center', color: colors.textTertiary,
+    padding: 40, fontSize: 14, lineHeight: 22,
   },
 });

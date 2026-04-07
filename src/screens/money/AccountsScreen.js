@@ -1,13 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList,
-  TouchableOpacity, Modal, TextInput,
-  ScrollView, Alert, ActivityIndicator,
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  TextInput, ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { loadBusiness, saveBusiness, generateId } from '../../data/BusinessStore';
+import ModalSheet from '../../components/ModalSheet';
 import { colors } from '../../theme/colors';
 
 const ACCOUNT_TYPES = [
@@ -21,7 +21,6 @@ export default function AccountsScreen({ route, navigation }) {
   const [biz, setBiz] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
-
   const [accName, setAccName] = useState('');
   const [accType, setAccType] = useState('cash');
   const [openingBalance, setOpeningBalance] = useState('');
@@ -37,7 +36,7 @@ export default function AccountsScreen({ route, navigation }) {
   const cur = biz?.meta?.currency || 'PKR';
   const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
 
-  const openCreateForm = () => {
+  const openCreate = () => {
     setEditingAccount(null);
     setAccName('');
     setAccType('cash');
@@ -45,7 +44,7 @@ export default function AccountsScreen({ route, navigation }) {
     setShowForm(true);
   };
 
-  const openEditForm = (account) => {
+  const openEdit = (account) => {
     setEditingAccount(account);
     setAccName(account.name);
     setAccType(account.type);
@@ -61,35 +60,31 @@ export default function AccountsScreen({ route, navigation }) {
     setSaving(true);
     try {
       const ob = parseFloat(openingBalance) || 0;
-
       if (editingAccount) {
-        // Editing — recalculate balance
-        // balance = openingBalance + all receipts - all payments for this account
-        const receiptsTotal = (biz.receipts || [])
-          .filter(r => r.accountId === editingAccount.id)
-          .reduce((s, r) => s + (r.amount || 0), 0);
-        const paymentsTotal = (biz.payments || [])
-          .filter(p => p.accountId === editingAccount.id)
-          .reduce((s, p) => s + (p.amount || 0), 0);
-        const newBalance = ob + receiptsTotal - paymentsTotal;
-
+        const receiptsTotal = (biz.transactions || [])
+          .filter(t => t.transactionType === 'receipt' && t.accountId === editingAccount.id)
+          .reduce((s, t) => s + (t.amount || 0), 0);
+        const paymentsTotal = (biz.transactions || [])
+          .filter(t => t.transactionType === 'payment' && t.accountId === editingAccount.id)
+          .reduce((s, t) => s + (t.amount || 0), 0);
+        const transfersIn = (biz.transactions || [])
+          .filter(t => t.transactionType === 'transfer' && t.toAccountId === editingAccount.id)
+          .reduce((s, t) => s + (t.amount || 0), 0);
+        const transfersOut = (biz.transactions || [])
+          .filter(t => t.transactionType === 'transfer' && t.fromAccountId === editingAccount.id)
+          .reduce((s, t) => s + (t.amount || 0), 0);
+        const newBalance = ob + receiptsTotal - paymentsTotal + transfersIn - transfersOut;
         const updated = {
           ...biz,
           bankAccounts: biz.bankAccounts.map(a =>
             a.id === editingAccount.id
-              ? {
-                  ...a,
-                  name: accName.trim(),
-                  type: accType,
-                  openingBalance: ob,
-                  balance: newBalance,
-                }
+              ? { ...a, name: accName.trim(), type: accType, openingBalance: ob, balance: newBalance }
               : a
           ),
         };
         await saveBusiness(updated);
+        setBiz(updated);
       } else {
-        // New account
         const newAccount = {
           id: generateId(),
           name: accName.trim(),
@@ -102,9 +97,9 @@ export default function AccountsScreen({ route, navigation }) {
           bankAccounts: [...accounts, newAccount],
         };
         await saveBusiness(updated);
+        setBiz(updated);
       }
       setShowForm(false);
-      loadBusiness(businessId).then(setBiz);
     } catch (e) {
       Alert.alert('Error', 'Could not save account.');
     } finally {
@@ -115,22 +110,19 @@ export default function AccountsScreen({ route, navigation }) {
   const handleDelete = () => {
     Alert.alert(
       'Delete Account',
-      'This will delete the account. Transactions linked to it will remain but won\'t affect this account balance.',
+      'This will delete the account. Existing transactions will remain.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
-          style: 'destructive',
+          text: 'Delete', style: 'destructive',
           onPress: async () => {
             const updated = {
               ...biz,
-              bankAccounts: biz.bankAccounts.filter(
-                a => a.id !== editingAccount.id
-              ),
+              bankAccounts: biz.bankAccounts.filter(a => a.id !== editingAccount.id),
             };
             await saveBusiness(updated);
+            setBiz(updated);
             setShowForm(false);
-            loadBusiness(businessId).then(setBiz);
           },
         },
       ]
@@ -147,7 +139,7 @@ export default function AccountsScreen({ route, navigation }) {
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Bank & Cash Accounts</Text>
-        <TouchableOpacity onPress={openCreateForm}>
+        <TouchableOpacity onPress={openCreate}>
           <Ionicons name="add" size={26} color={colors.primary} />
         </TouchableOpacity>
       </View>
@@ -157,7 +149,9 @@ export default function AccountsScreen({ route, navigation }) {
         <Text style={styles.totalValue}>
           {cur} {totalBalance.toLocaleString()}
         </Text>
-        <Text style={styles.totalSub}>{accounts.length} account{accounts.length !== 1 ? 's' : ''}</Text>
+        <Text style={styles.totalSub}>
+          {accounts.length} account{accounts.length !== 1 ? 's' : ''}
+        </Text>
       </View>
 
       <FlatList
@@ -177,10 +171,7 @@ export default function AccountsScreen({ route, navigation }) {
             <TouchableOpacity
               style={styles.card}
               onPress={() =>
-                navigation.navigate('AccountLedger', {
-                  businessId,
-                  accountId: item.id,
-                })
+                navigation.navigate('AccountLedger', { businessId, accountId: item.id })
               }
             >
               <View style={[styles.accountIcon, { backgroundColor: typeInfo.bg }]}>
@@ -189,25 +180,21 @@ export default function AccountsScreen({ route, navigation }) {
               <View style={{ flex: 1 }}>
                 <Text style={styles.accountName}>{item.name}</Text>
                 <Text style={styles.accountType}>{typeInfo.label}</Text>
-                {item.openingBalance > 0 && (
+                {(item.openingBalance || 0) > 0 && (
                   <Text style={styles.accountOB}>
                     Opening: {cur} {(item.openingBalance || 0).toLocaleString()}
                   </Text>
                 )}
               </View>
-              <View style={{ alignItems: 'flex-end', gap: 4 }}>
+              <View style={{ alignItems: 'flex-end', gap: 6 }}>
                 <Text style={[
                   styles.accountBalance,
                   { color: (item.balance || 0) >= 0 ? '#10B981' : '#EF4444' },
                 ]}>
                   {cur} {(item.balance || 0).toLocaleString()}
                 </Text>
-                <TouchableOpacity onPress={() => openEditForm(item)}>
-                  <Ionicons
-                    name="create-outline"
-                    size={18}
-                    color={colors.textTertiary}
-                  />
+                <TouchableOpacity onPress={() => openEdit(item)}>
+                  <Ionicons name="create-outline" size={18} color={colors.textTertiary} />
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
@@ -215,92 +202,75 @@ export default function AccountsScreen({ route, navigation }) {
         }}
       />
 
-      {/* Create / Edit Account Modal */}
-      <Modal visible={showForm} animationType="slide">
-        <SafeAreaView style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setShowForm(false)}>
-              <Ionicons name="close" size={24} color={colors.textPrimary} />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>
-              {editingAccount ? 'Edit Account' : 'New Account'}
-            </Text>
-            <TouchableOpacity onPress={handleSave} disabled={saving}>
-              {saving
-                ? <ActivityIndicator size="small" color={colors.primary} />
-                : <Text style={styles.saveText}>Save</Text>
-              }
-            </TouchableOpacity>
+      <ModalSheet
+        visible={showForm}
+        onClose={() => setShowForm(false)}
+        title={editingAccount ? 'Edit Account' : 'New Account'}
+        rightAction={handleSave}
+        rightActionLabel="Save"
+        rightActionLoading={saving}
+      >
+        <ScrollView
+          contentContainerStyle={styles.formContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.label}>Account name *</Text>
+          <TextInput
+            style={styles.input}
+            value={accName}
+            onChangeText={setAccName}
+            placeholder="e.g. HBL Current Account"
+            placeholderTextColor={colors.textTertiary}
+            autoFocus
+          />
+
+          <Text style={styles.label}>Account type</Text>
+          <View style={styles.typeRow}>
+            {ACCOUNT_TYPES.map(t => (
+              <TouchableOpacity
+                key={t.id}
+                style={[
+                  styles.typeBtn,
+                  accType === t.id && { borderColor: t.color, backgroundColor: t.bg },
+                ]}
+                onPress={() => setAccType(t.id)}
+              >
+                <Ionicons
+                  name={t.icon}
+                  size={18}
+                  color={accType === t.id ? t.color : colors.textSecondary}
+                />
+                <Text style={[
+                  styles.typeBtnText,
+                  accType === t.id && { color: t.color, fontWeight: '700' },
+                ]}>
+                  {t.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          <ScrollView
-            contentContainerStyle={styles.formContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            <Text style={styles.label}>Account name *</Text>
-            <TextInput
-              style={styles.input}
-              value={accName}
-              onChangeText={setAccName}
-              placeholder="e.g. HBL Current Account"
-              placeholderTextColor={colors.textTertiary}
-              autoFocus
-            />
+          <Text style={styles.label}>Opening balance</Text>
+          <TextInput
+            style={styles.input}
+            value={openingBalance}
+            onChangeText={setOpeningBalance}
+            placeholder="0"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType="numeric"
+          />
+          <Text style={styles.hint}>
+            The balance already in this account before you started using SmartBiz.
+          </Text>
 
-            <Text style={styles.label}>Account type</Text>
-            <View style={styles.typeRow}>
-              {ACCOUNT_TYPES.map(t => (
-                <TouchableOpacity
-                  key={t.id}
-                  style={[
-                    styles.typeBtn,
-                    accType === t.id && {
-                      borderColor: t.color,
-                      backgroundColor: t.bg,
-                    },
-                  ]}
-                  onPress={() => setAccType(t.id)}
-                >
-                  <Ionicons
-                    name={t.icon}
-                    size={20}
-                    color={accType === t.id ? t.color : colors.textSecondary}
-                  />
-                  <Text style={[
-                    styles.typeBtnText,
-                    accType === t.id && { color: t.color, fontWeight: '700' },
-                  ]}>
-                    {t.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.label}>Opening balance</Text>
-            <TextInput
-              style={styles.input}
-              value={openingBalance}
-              onChangeText={setOpeningBalance}
-              placeholder="0"
-              placeholderTextColor={colors.textTertiary}
-              keyboardType="numeric"
-            />
-            <Text style={styles.hint}>
-              Enter the balance already in this account before you started using SmartBiz.
-            </Text>
-
-            {editingAccount && (
-              <TouchableOpacity
-                style={styles.deleteBtn}
-                onPress={handleDelete}
-              >
-                <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                <Text style={styles.deleteBtnText}>Delete Account</Text>
-              </TouchableOpacity>
-            )}
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
+          {editingAccount && (
+            <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
+              <Ionicons name="trash-outline" size={18} color={colors.danger} />
+              <Text style={styles.deleteBtnText}>Delete Account</Text>
+            </TouchableOpacity>
+          )}
+        </ScrollView>
+      </ModalSheet>
     </SafeAreaView>
   );
 }
@@ -308,124 +278,52 @@ export default function AccountsScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   title: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
   totalCard: {
-    backgroundColor: colors.primary,
-    margin: 16,
-    borderRadius: 18,
-    padding: 22,
-    alignItems: 'center',
-    gap: 4,
+    backgroundColor: colors.primary, margin: 16, borderRadius: 18,
+    padding: 22, alignItems: 'center', gap: 4,
   },
   totalLabel: { fontSize: 13, color: 'rgba(255,255,255,0.75)' },
   totalValue: { fontSize: 30, fontWeight: '700', color: '#fff' },
   totalSub: { fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 2 },
   list: { paddingHorizontal: 16, gap: 8, paddingBottom: 40 },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    backgroundColor: '#fff', borderRadius: 14, padding: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
   },
-  accountIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 13,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  accountIcon: { width: 46, height: 46, borderRadius: 13, justifyContent: 'center', alignItems: 'center' },
   accountName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
   accountType: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   accountOB: { fontSize: 11, color: colors.textTertiary, marginTop: 1 },
   accountBalance: { fontSize: 16, fontWeight: '700' },
-  emptyBox: {
-    alignItems: 'center',
-    paddingTop: 60,
-    gap: 10,
-    paddingHorizontal: 40,
-  },
+  emptyBox: { alignItems: 'center', paddingTop: 60, gap: 10, paddingHorizontal: 40 },
   emptyTitle: { fontSize: 17, fontWeight: '600', color: colors.textSecondary },
   emptySub: { fontSize: 13, color: colors.textTertiary, textAlign: 'center' },
-  modal: { flex: 1, backgroundColor: '#fff' },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
-  saveText: { fontSize: 16, color: colors.primary, fontWeight: '700' },
   formContent: { padding: 16, paddingBottom: 48 },
   label: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-    marginTop: 20,
+    fontSize: 12, fontWeight: '700', color: colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8, marginTop: 20,
   },
   input: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: 11,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 15,
-    color: colors.textPrimary,
+    borderWidth: 1.5, borderColor: colors.border, borderRadius: 11,
+    paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, color: colors.textPrimary,
   },
-  hint: {
-    fontSize: 12,
-    color: colors.textTertiary,
-    marginTop: 6,
-    lineHeight: 18,
-  },
-  typeRow: { flexDirection: 'row', gap: 10 },
+  hint: { fontSize: 12, color: colors.textTertiary, marginTop: 6, lineHeight: 18 },
+  typeRow: { flexDirection: 'row', gap: 8 },
   typeBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: '#fff',
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 5, paddingVertical: 11, borderRadius: 10, borderWidth: 1.5, borderColor: colors.border,
   },
-  typeBtnText: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
+  typeBtnText: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
   deleteBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderWidth: 1.5,
-    borderColor: colors.danger,
-    borderRadius: 12,
-    paddingVertical: 14,
-    marginTop: 36,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, borderWidth: 1.5, borderColor: colors.danger,
+    borderRadius: 12, paddingVertical: 14, marginTop: 36,
   },
   deleteBtnText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
 });

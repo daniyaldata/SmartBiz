@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
-  TouchableOpacity, Alert, ActivityIndicator,
-  Modal, FlatList,
+  TouchableOpacity, Alert, ActivityIndicator, FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +13,8 @@ import {
   generateId,
   getInvoiceStatus,
 } from '../../data/BusinessStore';
+import ModalSheet from '../../components/ModalSheet';
+import DateField from '../../components/DateField';
 import { colors } from '../../theme/colors';
 
 const TAB_TYPES = [
@@ -22,51 +23,55 @@ const TAB_TYPES = [
   { id: 'transfer', label: 'Transfer', color: '#8B5CF6', icon: 'swap-horizontal-outline' },
 ];
 
+const PICKER_TITLES = {
+  customer: 'Select Customer',
+  salesInvoice: 'Select Invoice',
+  incomeAccount: 'Select Income Account',
+  depositAccount: 'Select Account',
+  supplier: 'Select Supplier',
+  purchaseInvoice: 'Select Bill',
+  expenseAccount: 'Select Expense Account',
+  payFromAccount: 'Select Account',
+  fromAccount: 'From Account (Credit)',
+  toAccount: 'To Account (Debit)',
+};
+
 export default function TransactionFormScreen({ route, navigation }) {
   const { businessId, transactionId, defaultType } = route?.params || {};
   const [biz, setBiz] = useState(null);
   const [loading, setLoading] = useState(false);
-
   const [txnType, setTxnType] = useState(defaultType || 'receipt');
+  const [picker, setPicker] = useState(null);
 
-  // Shared fields
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
 
-  // Receipt fields
   const [customer, setCustomer] = useState(null);
   const [linkedSalesInvoice, setLinkedSalesInvoice] = useState(null);
   const [incomeAccount, setIncomeAccount] = useState(null);
   const [depositAccount, setDepositAccount] = useState(null);
 
-  // Payment fields
   const [supplier, setSupplier] = useState(null);
   const [linkedPurchaseInvoice, setLinkedPurchaseInvoice] = useState(null);
   const [expenseAccount, setExpenseAccount] = useState(null);
   const [payFromAccount, setPayFromAccount] = useState(null);
 
-  // Transfer fields
   const [fromAccount, setFromAccount] = useState(null);
   const [toAccount, setToAccount] = useState(null);
-
-  // Picker modals
-  const [picker, setPicker] = useState(null);
 
   const editing = !!transactionId;
 
   useEffect(() => {
     loadBusiness(businessId).then(b => {
       setBiz(b);
-      // Set defaults
       if (b?.bankAccounts?.length > 0) {
         setDepositAccount(b.bankAccounts[0]);
         setPayFromAccount(b.bankAccounts[0]);
         setFromAccount(b.bankAccounts[0]);
         if (b.bankAccounts.length > 1) setToAccount(b.bankAccounts[1]);
       }
-      // Load existing if editing
       if (transactionId) {
         const txn = (b?.transactions || []).find(t => t.id === transactionId);
         if (txn) {
@@ -76,30 +81,20 @@ export default function TransactionFormScreen({ route, navigation }) {
           setReference(txn.reference || '');
           setNotes(txn.notes || '');
           if (txn.transactionType === 'receipt') {
-            const cust = b.customers?.find(c => c.id === txn.partyId);
-            setCustomer(cust || null);
-            const inv = b.salesInvoices?.find(i => i.id === txn.linkedInvoiceId);
-            setLinkedSalesInvoice(inv || null);
-            const inc = b.incomeAccounts?.find(a => a.id === txn.incomeAccountId);
-            setIncomeAccount(inc || null);
-            const acc = b.bankAccounts?.find(a => a.id === txn.accountId);
-            setDepositAccount(acc || null);
+            setCustomer(b.customers?.find(c => c.id === txn.partyId) || null);
+            setLinkedSalesInvoice(b.salesInvoices?.find(i => i.id === txn.linkedInvoiceId) || null);
+            setIncomeAccount(b.incomeAccounts?.find(a => a.id === txn.incomeAccountId) || null);
+            setDepositAccount(b.bankAccounts?.find(a => a.id === txn.accountId) || null);
           }
           if (txn.transactionType === 'payment') {
-            const sup = b.suppliers?.find(s => s.id === txn.partyId);
-            setSupplier(sup || null);
-            const inv = b.purchaseInvoices?.find(i => i.id === txn.linkedInvoiceId);
-            setLinkedPurchaseInvoice(inv || null);
-            const exp = b.expenseAccounts?.find(a => a.id === txn.expenseAccountId);
-            setExpenseAccount(exp || null);
-            const acc = b.bankAccounts?.find(a => a.id === txn.accountId);
-            setPayFromAccount(acc || null);
+            setSupplier(b.suppliers?.find(s => s.id === txn.partyId) || null);
+            setLinkedPurchaseInvoice(b.purchaseInvoices?.find(i => i.id === txn.linkedInvoiceId) || null);
+            setExpenseAccount(b.expenseAccounts?.find(a => a.id === txn.expenseAccountId) || null);
+            setPayFromAccount(b.bankAccounts?.find(a => a.id === txn.accountId) || null);
           }
           if (txn.transactionType === 'transfer') {
-            const from = b.bankAccounts?.find(a => a.id === txn.fromAccountId);
-            const to = b.bankAccounts?.find(a => a.id === txn.toAccountId);
-            setFromAccount(from || null);
-            setToAccount(to || null);
+            setFromAccount(b.bankAccounts?.find(a => a.id === txn.fromAccountId) || null);
+            setToAccount(b.bankAccounts?.find(a => a.id === txn.toAccountId) || null);
           }
         }
       }
@@ -112,7 +107,6 @@ export default function TransactionFormScreen({ route, navigation }) {
       Alert.alert('Amount required', 'Please enter a valid amount.');
       return;
     }
-
     if (txnType === 'receipt' && !depositAccount) {
       Alert.alert('Account required', 'Please select a deposit account.');
       return;
@@ -135,9 +129,8 @@ export default function TransactionFormScreen({ route, navigation }) {
     setLoading(true);
     try {
       const id = transactionId || generateId();
-
       if (txnType === 'receipt') {
-        const txn = {
+        await saveReceiptTransaction(biz, {
           id,
           transactionType: 'receipt',
           partyType: customer ? 'customer' : null,
@@ -153,12 +146,10 @@ export default function TransactionFormScreen({ route, navigation }) {
           reference: reference.trim(),
           notes: notes.trim(),
           createdAt: new Date().toISOString(),
-        };
-        await saveReceiptTransaction(biz, txn);
+        });
       }
-
       if (txnType === 'payment') {
-        const txn = {
+        await savePaymentTransaction(biz, {
           id,
           transactionType: 'payment',
           partyType: supplier ? 'supplier' : null,
@@ -174,12 +165,10 @@ export default function TransactionFormScreen({ route, navigation }) {
           reference: reference.trim(),
           notes: notes.trim(),
           createdAt: new Date().toISOString(),
-        };
-        await savePaymentTransaction(biz, txn);
+        });
       }
-
       if (txnType === 'transfer') {
-        const txn = {
+        await saveTransferTransaction(biz, {
           id,
           transactionType: 'transfer',
           fromAccountId: fromAccount?.id,
@@ -191,13 +180,11 @@ export default function TransactionFormScreen({ route, navigation }) {
           reference: reference.trim(),
           notes: notes.trim(),
           createdAt: new Date().toISOString(),
-        };
-        await saveTransferTransaction(biz, txn);
+        });
       }
-
       navigation.goBack();
     } catch (e) {
-      Alert.alert('Error', 'Could not save transaction: ' + e.message);
+      Alert.alert('Error', 'Could not save: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -210,12 +197,10 @@ export default function TransactionFormScreen({ route, navigation }) {
   );
 
   const activeTab = TAB_TYPES.find(t => t.id === txnType);
-
-  const unpaidSalesInvoices = (biz.salesInvoices || [])
+  const unpaidSales = (biz.salesInvoices || [])
     .filter(i => i.customerId === customer?.id && getInvoiceStatus(i) !== 'paid')
     .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-  const unpaidPurchaseInvoices = (biz.purchaseInvoices || [])
+  const unpaidPurchases = (biz.purchaseInvoices || [])
     .filter(i => i.supplierId === supplier?.id && getInvoiceStatus(i) !== 'paid')
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -234,6 +219,123 @@ export default function TransactionFormScreen({ route, navigation }) {
       <Ionicons name="chevron-down" size={18} color={colors.textTertiary} />
     </TouchableOpacity>
   );
+
+  const getPickerData = () => {
+    switch (picker) {
+      case 'customer':
+        return [{ id: null, displayName: '— No customer (income account) —' }, ...(biz.customers || [])];
+      case 'salesInvoice':
+        return [{ id: null, _label: '— Auto-allocate (FIFO) —' }, ...unpaidSales];
+      case 'incomeAccount':
+        return biz.incomeAccounts || [];
+      case 'depositAccount':
+        return biz.bankAccounts || [];
+      case 'supplier':
+        return [{ id: null, displayName: '— No supplier (expense account) —' }, ...(biz.suppliers || [])];
+      case 'purchaseInvoice':
+        return [{ id: null, _label: '— Auto-allocate (FIFO) —' }, ...unpaidPurchases];
+      case 'expenseAccount':
+        return biz.expenseAccounts || [];
+      case 'payFromAccount':
+        return biz.bankAccounts || [];
+      case 'fromAccount':
+        return biz.bankAccounts || [];
+      case 'toAccount':
+        return biz.bankAccounts || [];
+      default:
+        return [];
+    }
+  };
+
+  const handlePickerSelect = (item) => {
+    switch (picker) {
+      case 'customer':
+        setCustomer(item.id ? item : null);
+        setLinkedSalesInvoice(null);
+        break;
+      case 'salesInvoice':
+        setLinkedSalesInvoice(item.id ? item : null);
+        if (item.id) setAmount((item.total - (item.amountPaid || 0)).toString());
+        break;
+      case 'incomeAccount':
+        setIncomeAccount(item);
+        break;
+      case 'depositAccount':
+        setDepositAccount(item);
+        break;
+      case 'supplier':
+        setSupplier(item.id ? item : null);
+        setLinkedPurchaseInvoice(null);
+        break;
+      case 'purchaseInvoice':
+        setLinkedPurchaseInvoice(item.id ? item : null);
+        if (item.id) setAmount((item.total - (item.amountPaid || 0)).toString());
+        break;
+      case 'expenseAccount':
+        setExpenseAccount(item);
+        break;
+      case 'payFromAccount':
+        setPayFromAccount(item);
+        break;
+      case 'fromAccount':
+        setFromAccount(item);
+        break;
+      case 'toAccount':
+        setToAccount(item);
+        break;
+    }
+    setPicker(null);
+  };
+
+  const renderPickerItem = ({ item }) => {
+    if (item._label) {
+      return (
+        <TouchableOpacity style={styles.modalItem} onPress={() => handlePickerSelect(item)}>
+          <Text style={[styles.modalItemName, { color: colors.textSecondary, fontStyle: 'italic' }]}>
+            {item._label}
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+    if (!item.id && item.displayName?.startsWith('—')) {
+      return (
+        <TouchableOpacity style={styles.modalItem} onPress={() => handlePickerSelect(item)}>
+          <Text style={[styles.modalItemName, { color: colors.textSecondary, fontStyle: 'italic' }]}>
+            {item.displayName}
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+    return (
+      <TouchableOpacity style={styles.modalItem} onPress={() => handlePickerSelect(item)}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.modalItemName}>
+            {item.displayName || item.name ||
+              (item.number ? `INV-${item.number}` : '') ||
+              (item.code ? `${item.code} — ` : '')}
+          </Text>
+          {item.total !== undefined && (
+            <Text style={styles.modalItemSub}>
+              Total: {biz.meta?.currency} {item.total?.toLocaleString()} ·
+              Balance: {biz.meta?.currency}{' '}
+              {(item.total - (item.amountPaid || 0)).toLocaleString()}
+            </Text>
+          )}
+          {item.balance !== undefined && (
+            <Text style={styles.modalItemSub}>
+              Balance: {biz.meta?.currency} {(item.balance || 0).toLocaleString()}
+            </Text>
+          )}
+          {item.group && (
+            <Text style={styles.modalItemSub}>{item.code} · {item.group}</Text>
+          )}
+          {item.phone && (
+            <Text style={styles.modalItemSub}>{item.phone}</Text>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -285,8 +387,7 @@ export default function TransactionFormScreen({ route, navigation }) {
         contentContainerStyle={styles.form}
         keyboardShouldPersistTaps="handled"
       >
-
-        {/* ── RECEIPT FIELDS ── */}
+        {/* RECEIPT */}
         {txnType === 'receipt' && (
           <>
             <PickerField
@@ -295,7 +396,6 @@ export default function TransactionFormScreen({ route, navigation }) {
               placeholder="Select customer or leave blank"
               onPress={() => setPicker('customer')}
             />
-
             {customer && (
               <PickerField
                 label="Against invoice (optional)"
@@ -306,7 +406,6 @@ export default function TransactionFormScreen({ route, navigation }) {
                 onPress={() => setPicker('salesInvoice')}
               />
             )}
-
             {!customer && (
               <PickerField
                 label="Income account"
@@ -316,7 +415,6 @@ export default function TransactionFormScreen({ route, navigation }) {
                 color="#10B981"
               />
             )}
-
             <PickerField
               label="Deposit into *"
               value={depositAccount?.name}
@@ -327,7 +425,7 @@ export default function TransactionFormScreen({ route, navigation }) {
           </>
         )}
 
-        {/* ── PAYMENT FIELDS ── */}
+        {/* PAYMENT */}
         {txnType === 'payment' && (
           <>
             <PickerField
@@ -336,7 +434,6 @@ export default function TransactionFormScreen({ route, navigation }) {
               placeholder="Select supplier or leave blank"
               onPress={() => setPicker('supplier')}
             />
-
             {supplier && (
               <PickerField
                 label="Against invoice (optional)"
@@ -347,7 +444,6 @@ export default function TransactionFormScreen({ route, navigation }) {
                 onPress={() => setPicker('purchaseInvoice')}
               />
             )}
-
             {!supplier && (
               <PickerField
                 label="Expense account"
@@ -357,7 +453,6 @@ export default function TransactionFormScreen({ route, navigation }) {
                 color="#EF4444"
               />
             )}
-
             <PickerField
               label="Pay from account *"
               value={payFromAccount?.name}
@@ -368,44 +463,42 @@ export default function TransactionFormScreen({ route, navigation }) {
           </>
         )}
 
-        {/* ── TRANSFER FIELDS ── */}
+        {/* TRANSFER */}
         {txnType === 'transfer' && (
-          <>
-            <View style={styles.transferRow}>
-              <View style={{ flex: 1 }}>
-                <TouchableOpacity
-                  style={[styles.transferAccount, styles.transferFrom]}
-                  onPress={() => setPicker('fromAccount')}
-                >
-                  <Text style={styles.transferAccountLabel}>From (Credit)</Text>
-                  <Text style={styles.transferAccountName} numberOfLines={1}>
-                    {fromAccount?.name || 'Select account'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <Ionicons name="arrow-forward" size={20} color={colors.textTertiary} />
-              <View style={{ flex: 1 }}>
-                <TouchableOpacity
-                  style={[styles.transferAccount, styles.transferTo]}
-                  onPress={() => setPicker('toAccount')}
-                >
-                  <Text style={styles.transferAccountLabel}>To (Debit)</Text>
-                  <Text style={styles.transferAccountName} numberOfLines={1}>
-                    {toAccount?.name || 'Select account'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+          <View style={styles.transferRow}>
+            <View style={{ flex: 1 }}>
+              <TouchableOpacity
+                style={[styles.transferAccount, styles.transferFrom]}
+                onPress={() => setPicker('fromAccount')}
+              >
+                <Text style={styles.transferLabel}>From (Credit)</Text>
+                <Text style={styles.transferName} numberOfLines={1}>
+                  {fromAccount?.name || 'Select account'}
+                </Text>
+              </TouchableOpacity>
             </View>
-          </>
+            <Ionicons name="arrow-forward" size={20} color={colors.textTertiary} />
+            <View style={{ flex: 1 }}>
+              <TouchableOpacity
+                style={[styles.transferAccount, styles.transferTo]}
+                onPress={() => setPicker('toAccount')}
+              >
+                <Text style={styles.transferLabel}>To (Debit)</Text>
+                <Text style={styles.transferName} numberOfLines={1}>
+                  {toAccount?.name || 'Select account'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
 
-        {/* ── SHARED FIELDS ── */}
-        <View style={styles.amountRow}>
+        {/* SHARED FIELDS */}
+        <View style={styles.row2}>
           <View style={{ flex: 1 }}>
             <Text style={styles.label}>Amount *</Text>
             <TextInput
               style={[styles.input, styles.amountInput,
-                { borderColor: activeTab?.color || colors.border }
+                { borderColor: activeTab?.color || colors.border },
               ]}
               value={amount}
               onChangeText={setAmount}
@@ -415,13 +508,10 @@ export default function TransactionFormScreen({ route, navigation }) {
             />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Date</Text>
-            <TextInput
-              style={styles.input}
+            <DateField
+              label="Date"
               value={date}
-              onChangeText={setDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={colors.textTertiary}
+              onChange={setDate}
             />
           </View>
         </View>
@@ -445,7 +535,6 @@ export default function TransactionFormScreen({ route, navigation }) {
           multiline
         />
 
-        {/* Summary */}
         {amount && parseFloat(amount) > 0 && (
           <View style={[styles.summaryBox, { backgroundColor: activeTab?.color + '12' }]}>
             <Text style={[styles.summaryTitle, { color: activeTab?.color }]}>
@@ -479,237 +568,21 @@ export default function TransactionFormScreen({ route, navigation }) {
         )}
       </ScrollView>
 
-      {/* ── PICKERS ── */}
-      <Modal visible={!!picker} animationType="slide">
-        <SafeAreaView style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>
-              {picker === 'customer' && 'Select Customer'}
-              {picker === 'salesInvoice' && 'Select Invoice'}
-              {picker === 'incomeAccount' && 'Select Income Account'}
-              {picker === 'depositAccount' && 'Select Account'}
-              {picker === 'supplier' && 'Select Supplier'}
-              {picker === 'purchaseInvoice' && 'Select Bill'}
-              {picker === 'expenseAccount' && 'Select Expense Account'}
-              {picker === 'payFromAccount' && 'Select Account'}
-              {picker === 'fromAccount' && 'From Account (Credit)'}
-              {picker === 'toAccount' && 'To Account (Debit)'}
-            </Text>
-            <TouchableOpacity onPress={() => setPicker(null)}>
-              <Ionicons name="close" size={24} color={colors.textPrimary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Customer picker */}
-          {picker === 'customer' && (
-            <FlatList
-              data={[{ id: null, displayName: '— No customer (income account) —' }, ...(biz.customers || [])]}
-              keyExtractor={(i, idx) => i.id || 'none-' + idx}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.modalItem}
-                  onPress={() => {
-                    if (!item.id) {
-                      setCustomer(null);
-                      setLinkedSalesInvoice(null);
-                    } else {
-                      setCustomer(item);
-                      setLinkedSalesInvoice(null);
-                    }
-                    setPicker(null);
-                  }}
-                >
-                  <Text style={[
-                    styles.modalItemName,
-                    !item.id && { color: colors.textSecondary, fontStyle: 'italic' },
-                  ]}>
-                    {item.displayName}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              ListEmptyComponent={
-                <Text style={styles.modalEmpty}>No customers found.</Text>
-              }
-            />
-          )}
-
-          {/* Sales invoice picker */}
-          {picker === 'salesInvoice' && (
-            <FlatList
-              data={[
-                { id: null, _label: '— Auto-allocate (FIFO) —' },
-                ...unpaidSalesInvoices,
-              ]}
-              keyExtractor={(i, idx) => i.id || 'auto-' + idx}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.modalItem}
-                  onPress={() => {
-                    setLinkedSalesInvoice(item.id ? item : null);
-                    if (item.id) setAmount(
-                      (item.total - (item.amountPaid || 0)).toString()
-                    );
-                    setPicker(null);
-                  }}
-                >
-                  {item._label ? (
-                    <Text style={[styles.modalItemName, { color: colors.textSecondary, fontStyle: 'italic' }]}>
-                      {item._label}
-                    </Text>
-                  ) : (
-                    <>
-                      <Text style={styles.modalItemName}>
-                        INV-{item.number} · {biz.meta?.currency} {item.total?.toLocaleString()}
-                      </Text>
-                      <Text style={styles.modalItemSub}>
-                        Balance: {biz.meta?.currency}{' '}
-                        {(item.total - (item.amountPaid || 0)).toLocaleString()} ·{' '}
-                        {new Date(item.date).toLocaleDateString()}
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              )}
-              ListEmptyComponent={
-                <Text style={styles.modalEmpty}>No unpaid invoices for this customer.</Text>
-              }
-            />
-          )}
-
-          {/* Income account picker */}
-          {picker === 'incomeAccount' && (
-            <FlatList
-              data={biz.incomeAccounts || []}
-              keyExtractor={a => a.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.modalItem}
-                  onPress={() => { setIncomeAccount(item); setPicker(null); }}
-                >
-                  <Text style={styles.modalItemName}>{item.name}</Text>
-                  <Text style={styles.modalItemSub}>{item.code} · {item.group}</Text>
-                </TouchableOpacity>
-              )}
-            />
-          )}
-
-          {/* Bank account pickers */}
-          {(picker === 'depositAccount' || picker === 'payFromAccount' ||
-            picker === 'fromAccount' || picker === 'toAccount') && (
-            <FlatList
-              data={biz.bankAccounts || []}
-              keyExtractor={a => a.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.modalItem}
-                  onPress={() => {
-                    if (picker === 'depositAccount') setDepositAccount(item);
-                    if (picker === 'payFromAccount') setPayFromAccount(item);
-                    if (picker === 'fromAccount') setFromAccount(item);
-                    if (picker === 'toAccount') setToAccount(item);
-                    setPicker(null);
-                  }}
-                >
-                  <Text style={styles.modalItemName}>{item.name}</Text>
-                  <Text style={styles.modalItemSub}>
-                    Balance: {biz.meta?.currency} {(item.balance || 0).toLocaleString()}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          )}
-
-          {/* Supplier picker */}
-          {picker === 'supplier' && (
-            <FlatList
-              data={[{ id: null, displayName: '— No supplier (expense account) —' }, ...(biz.suppliers || [])]}
-              keyExtractor={(i, idx) => i.id || 'none-' + idx}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.modalItem}
-                  onPress={() => {
-                    if (!item.id) {
-                      setSupplier(null);
-                      setLinkedPurchaseInvoice(null);
-                    } else {
-                      setSupplier(item);
-                      setLinkedPurchaseInvoice(null);
-                    }
-                    setPicker(null);
-                  }}
-                >
-                  <Text style={[
-                    styles.modalItemName,
-                    !item.id && { color: colors.textSecondary, fontStyle: 'italic' },
-                  ]}>
-                    {item.displayName}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          )}
-
-          {/* Purchase invoice picker */}
-          {picker === 'purchaseInvoice' && (
-            <FlatList
-              data={[
-                { id: null, _label: '— Auto-allocate (FIFO) —' },
-                ...unpaidPurchaseInvoices,
-              ]}
-              keyExtractor={(i, idx) => i.id || 'auto-' + idx}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.modalItem}
-                  onPress={() => {
-                    setLinkedPurchaseInvoice(item.id ? item : null);
-                    if (item.id) setAmount(
-                      (item.total - (item.amountPaid || 0)).toString()
-                    );
-                    setPicker(null);
-                  }}
-                >
-                  {item._label ? (
-                    <Text style={[styles.modalItemName, { color: colors.textSecondary, fontStyle: 'italic' }]}>
-                      {item._label}
-                    </Text>
-                  ) : (
-                    <>
-                      <Text style={styles.modalItemName}>
-                        BILL-{item.number} · {biz.meta?.currency} {item.total?.toLocaleString()}
-                      </Text>
-                      <Text style={styles.modalItemSub}>
-                        Balance: {biz.meta?.currency}{' '}
-                        {(item.total - (item.amountPaid || 0)).toLocaleString()} ·{' '}
-                        {new Date(item.date).toLocaleDateString()}
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              )}
-              ListEmptyComponent={
-                <Text style={styles.modalEmpty}>No unpaid bills for this supplier.</Text>
-              }
-            />
-          )}
-
-          {/* Expense account picker */}
-          {picker === 'expenseAccount' && (
-            <FlatList
-              data={biz.expenseAccounts || []}
-              keyExtractor={a => a.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.modalItem}
-                  onPress={() => { setExpenseAccount(item); setPicker(null); }}
-                >
-                  <Text style={styles.modalItemName}>{item.name}</Text>
-                  <Text style={styles.modalItemSub}>{item.code} · {item.group}</Text>
-                </TouchableOpacity>
-              )}
-            />
-          )}
-        </SafeAreaView>
-      </Modal>
+      {/* Universal picker modal using ModalSheet */}
+      <ModalSheet
+        visible={!!picker}
+        onClose={() => setPicker(null)}
+        title={PICKER_TITLES[picker] || 'Select'}
+      >
+        <FlatList
+          data={getPickerData()}
+          keyExtractor={(item, idx) => item.id || item._label || String(idx)}
+          renderItem={renderPickerItem}
+          ListEmptyComponent={
+            <Text style={styles.modalEmpty}>No options available.</Text>
+          }
+        />
+      </ModalSheet>
     </SafeAreaView>
   );
 }
@@ -718,148 +591,63 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   headerTitle: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
   saveBtn: { fontSize: 16, color: colors.primary, fontWeight: '700' },
   tabRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10,
+    gap: 8, borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   tab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 9,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: colors.border,
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 5, paddingVertical: 9,
+    borderRadius: 10, borderWidth: 1.5, borderColor: colors.border,
     backgroundColor: colors.background,
   },
   tabText: { fontSize: 13, fontWeight: '500', color: colors.textSecondary },
   form: { padding: 16, paddingBottom: 48, gap: 4 },
   label: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 5,
-    marginTop: 12,
+    fontSize: 11, fontWeight: '700', color: colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+    marginBottom: 5, marginTop: 12,
   },
   input: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: 11,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-    fontSize: 15,
-    color: colors.textPrimary,
+    borderWidth: 1.5, borderColor: colors.border, borderRadius: 11,
+    paddingHorizontal: 13, paddingVertical: 11,
+    fontSize: 15, color: colors.textPrimary,
   },
-  amountRow: { flexDirection: 'row', gap: 10 },
   amountInput: { fontSize: 18, fontWeight: '600', borderWidth: 2 },
+  row2: { flexDirection: 'row', gap: 10 },
   picker: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: 11,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    backgroundColor: colors.background,
+    borderWidth: 1.5, borderColor: colors.border, borderRadius: 11,
+    paddingHorizontal: 13, paddingVertical: 11,
+    flexDirection: 'row', alignItems: 'center',
+    marginTop: 4, backgroundColor: colors.background,
   },
   pickerLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 3,
+    fontSize: 10, fontWeight: '700', color: colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3,
   },
   pickerValue: { fontSize: 14, fontWeight: '500', color: colors.textPrimary },
   pickerPlaceholder: { color: colors.textTertiary, fontWeight: '400' },
-  transferRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 4,
+  transferRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  transferAccount: { borderRadius: 11, padding: 12, borderWidth: 1.5 },
+  transferFrom: { borderColor: '#FECACA', backgroundColor: '#FFF5F5' },
+  transferTo: { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' },
+  transferLabel: {
+    fontSize: 10, fontWeight: '700', color: colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4,
   },
-  transferAccount: {
-    borderRadius: 11,
-    padding: 12,
-    borderWidth: 1.5,
-  },
-  transferFrom: {
-    borderColor: '#FECACA',
-    backgroundColor: '#FFF5F5',
-  },
-  transferTo: {
-    borderColor: '#BBF7D0',
-    backgroundColor: '#F0FDF4',
-  },
-  transferAccountLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 4,
-  },
-  transferAccountName: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  summaryBox: {
-    borderRadius: 14,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 16,
-    gap: 4,
-  },
-  summaryTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
+  transferName: { fontSize: 13, fontWeight: '600', color: colors.textPrimary },
+  summaryBox: { borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 16, gap: 4 },
+  summaryTitle: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
   summaryAmount: { fontSize: 24, fontWeight: '700' },
   summarySub: { fontSize: 13, color: colors.textSecondary, textAlign: 'center' },
-  modal: { flex: 1, backgroundColor: '#fff' },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
-  modalItem: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
+  modalItem: { padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
   modalItemName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
   modalItemSub: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  modalEmpty: {
-    textAlign: 'center',
-    color: colors.textTertiary,
-    padding: 40,
-    fontSize: 14,
-  },
+  modalEmpty: { textAlign: 'center', color: colors.textTertiary, padding: 40, fontSize: 14 },
 });
