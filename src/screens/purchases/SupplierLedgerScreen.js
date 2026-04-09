@@ -5,7 +5,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { loadBusiness, getSupplierBalance } from '../../data/BusinessStore';
+import { loadBusiness } from '../../data/BusinessStore';
 import { colors } from '../../theme/colors';
 
 export default function SupplierLedgerScreen({ route, navigation }) {
@@ -22,32 +22,85 @@ export default function SupplierLedgerScreen({ route, navigation }) {
 
   const supplier = biz.suppliers?.find(s => s.id === supplierId);
   const cur = biz.meta?.currency || 'PKR';
-  const balance = getSupplierBalance(biz, supplierId);
 
-  const txns = [
+  // Build all ledger entries for this supplier
+  const rawTxns = [
+
+    // Purchase invoices — credit the supplier (we owe them)
     ...(biz.purchaseInvoices || [])
       .filter(i => i.supplierId === supplierId)
       .map(i => ({
         id: i.id,
-        type: 'Invoice',
         date: i.date,
-        description: `Bill #${i.number || i.id.slice(-4)}`,
-        debit: i.total,
-        credit: 0,
-        color: '#EF4444',
-      })),
-    ...(biz.payments || [])
-      .filter(p => p.supplierId === supplierId)
-      .map(p => ({
-        id: p.id,
-        type: 'Payment',
-        date: p.date,
-        description: `Payment${p.reference ? ' · ' + p.reference : ''}`,
+        description: `Bill BILL-${i.number || i.id.slice(-4)}`,
+        type: 'invoice',
         debit: 0,
-        credit: p.amount,
-        color: '#10B981',
+        credit: i.total || 0,
       })),
+
+    // Payments — debit the supplier (we paid them)
+    ...(biz.transactions || [])
+      .filter(t =>
+        t.transactionType === 'payment' &&
+        t.partyId === supplierId &&
+        t.partyType === 'supplier'
+      )
+      .map(t => ({
+        id: t.id,
+        date: t.date,
+        description: `Payment${t.reference ? ' — Ref: ' + t.reference : ''}`,
+        type: 'payment',
+        debit: t.amount || 0,
+        credit: 0,
+        ref: t.reference || null,
+      })),
+
+    // Journal entries affecting this supplier
+    ...(biz.journalEntries || []).flatMap(je =>
+      (je.lines || [])
+        .filter(line =>
+          line.accountCategory === 'supplier' &&
+          (line.accountId === supplierId ||
+            line.linkedSupplierId === supplierId)
+        )
+        .map(line => ({
+          id: `${je.id}_${line.lineId}`,
+          date: je.date,
+          description: `Journal — ${je.description}`,
+          type: 'journal',
+          // Debit on supplier = reduces what we owe
+          // Credit on supplier = increases what we owe
+          debit: line.debit || 0,
+          credit: line.credit || 0,
+        }))
+    ),
+
   ].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  // Running balance (positive = we owe the supplier)
+  let running = 0;
+  const txns = rawTxns.map(t => {
+    running += t.credit - t.debit;
+    return { ...t, runningBalance: running };
+  });
+
+  const totalDebit  = rawTxns.reduce((s, t) => s + t.debit,  0);
+  const totalCredit = rawTxns.reduce((s, t) => s + t.credit, 0);
+  const balance     = totalCredit - totalDebit;
+
+  const getTypeIcon = (type) => {
+    if (type === 'invoice') return 'document-text-outline';
+    if (type === 'payment') return 'arrow-up-circle-outline';
+    if (type === 'journal') return 'book-outline';
+    return 'ellipse-outline';
+  };
+
+  const getTypeColor = (type) => {
+    if (type === 'invoice') return '#EF4444';
+    if (type === 'payment') return '#10B981';
+    if (type === 'journal') return '#8B5CF6';
+    return colors.textSecondary;
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -55,7 +108,7 @@ export default function SupplierLedgerScreen({ route, navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.title}>
+        <Text style={styles.title} numberOfLines={1}>
           {supplier?.displayName || 'Supplier'}
         </Text>
         <TouchableOpacity
@@ -67,52 +120,48 @@ export default function SupplierLedgerScreen({ route, navigation }) {
         </TouchableOpacity>
       </View>
 
+      {/* Balance card */}
       <View style={styles.balanceCard}>
         <Text style={styles.balanceLabel}>Outstanding Payable</Text>
         <Text style={[
           styles.balanceAmount,
-          { color: balance > 0 ? '#EF4444' : colors.success },
+          { color: balance > 0 ? '#EF4444' : '#10B981' },
         ]}>
           {cur} {Math.abs(balance).toLocaleString()}
         </Text>
-        <Text style={styles.balanceStatus}>
+        <Text style={styles.balanceSub}>
           {balance > 0
-            ? 'Amount you owe'
+            ? 'Amount you owe supplier'
             : balance < 0
-            ? 'Overpaid'
-            : 'All cleared'}
+            ? 'Credit balance (overpaid)'
+            : 'Account settled'}
         </Text>
       </View>
 
-      {supplier?.phone || supplier?.email ? (
+      {/* Contact info */}
+      {(supplier?.phone || supplier?.email) ? (
         <View style={styles.contactCard}>
           {supplier.phone ? (
             <View style={styles.contactRow}>
-              <Ionicons
-                name="call-outline"
-                size={16}
-                color={colors.textSecondary}
-              />
+              <Ionicons name="call-outline" size={15} color={colors.textSecondary} />
               <Text style={styles.contactText}>{supplier.phone}</Text>
             </View>
           ) : null}
           {supplier.email ? (
             <View style={styles.contactRow}>
-              <Ionicons
-                name="mail-outline"
-                size={16}
-                color={colors.textSecondary}
-              />
+              <Ionicons name="mail-outline" size={15} color={colors.textSecondary} />
               <Text style={styles.contactText}>{supplier.email}</Text>
             </View>
           ) : null}
         </View>
       ) : null}
 
+      {/* Table header */}
       <View style={styles.tableHeader}>
-        <Text style={[styles.col, { flex: 2 }]}>Description</Text>
+        <Text style={[styles.col, { flex: 3 }]}>Description</Text>
         <Text style={[styles.col, { textAlign: 'right' }]}>Debit</Text>
         <Text style={[styles.col, { textAlign: 'right' }]}>Credit</Text>
+        <Text style={[styles.col, { textAlign: 'right' }]}>Balance</Text>
       </View>
 
       <FlatList
@@ -120,34 +169,79 @@ export default function SupplierLedgerScreen({ route, navigation }) {
         keyExtractor={t => t.id}
         contentContainerStyle={{ paddingBottom: 40 }}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>No transactions yet</Text>
+          <View style={styles.emptyBox}>
+            <Ionicons
+              name="people-outline"
+              size={44}
+              color={colors.textTertiary}
+            />
+            <Text style={styles.emptyTitle}>No transactions yet</Text>
+            <Text style={styles.emptySub}>
+              Create a purchase invoice or record a payment for this supplier
+            </Text>
+          </View>
         }
         renderItem={({ item }) => (
-          <View style={styles.txnRow}>
-            <View style={{ flex: 2 }}>
-              <Text style={styles.txnDesc}>{item.description}</Text>
+          <View style={[
+            styles.txnRow,
+            item.type === 'payment' && styles.txnRowPayment,
+            item.type === 'journal' && styles.txnRowJournal,
+          ]}>
+            <View style={{ flex: 3 }}>
+              <View style={styles.txnTitleRow}>
+                <Ionicons
+                  name={getTypeIcon(item.type)}
+                  size={13}
+                  color={getTypeColor(item.type)}
+                />
+                <Text style={styles.txnDesc} numberOfLines={1}>
+                  {item.description}
+                </Text>
+              </View>
               <Text style={styles.txnDate}>
                 {new Date(item.date).toLocaleDateString()}
               </Text>
+              {item.ref ? (
+                <Text style={styles.txnRef}>Ref: {item.ref}</Text>
+              ) : null}
             </View>
-            <Text style={[
-              styles.txnAmount,
-              { color: '#EF4444', textAlign: 'right' },
-            ]}>
+            <Text style={[styles.txnDebit, { textAlign: 'right' }]}>
               {item.debit > 0
                 ? `${cur} ${item.debit.toLocaleString()}`
                 : '—'}
             </Text>
-            <Text style={[
-              styles.txnAmount,
-              { color: '#10B981', textAlign: 'right' },
-            ]}>
+            <Text style={[styles.txnCredit, { textAlign: 'right' }]}>
               {item.credit > 0
                 ? `${cur} ${item.credit.toLocaleString()}`
                 : '—'}
             </Text>
+            <Text style={[
+              styles.txnBalance,
+              { color: item.runningBalance > 0 ? '#EF4444' : '#10B981' },
+            ]}>
+              {cur} {Math.abs(item.runningBalance).toLocaleString()}
+            </Text>
           </View>
         )}
+        ListFooterComponent={
+          txns.length > 0 ? (
+            <View style={styles.totalRow}>
+              <Text style={[styles.totalCell, { flex: 3 }]}>Total</Text>
+              <Text style={[styles.totalDebit, { textAlign: 'right' }]}>
+                {cur} {totalDebit.toLocaleString()}
+              </Text>
+              <Text style={[styles.totalCredit, { textAlign: 'right' }]}>
+                {cur} {totalCredit.toLocaleString()}
+              </Text>
+              <Text style={[
+                styles.totalBalance,
+                { color: balance > 0 ? '#EF4444' : '#10B981' },
+              ]}>
+                {cur} {Math.abs(balance).toLocaleString()}
+              </Text>
+            </View>
+          ) : null
+        }
       />
     </SafeAreaView>
   );
@@ -156,89 +250,58 @@ export default function SupplierLedgerScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border,
   },
-  title: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
+  title: { fontSize: 17, fontWeight: '700', color: colors.textPrimary, flex: 1, textAlign: 'center' },
   balanceCard: {
-    backgroundColor: '#fff',
-    margin: 16,
-    borderRadius: 16,
-    padding: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-    gap: 4,
+    backgroundColor: '#fff', margin: 16, borderRadius: 16, padding: 20,
+    alignItems: 'center', shadowColor: '#000',
+    shadowOpacity: 0.05, shadowRadius: 8, elevation: 2, gap: 4,
   },
-  balanceLabel: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
+  balanceLabel:  { fontSize: 13, color: colors.textSecondary },
   balanceAmount: { fontSize: 28, fontWeight: '700' },
-  balanceStatus: { fontSize: 13, color: colors.textSecondary },
+  balanceSub:    { fontSize: 12, color: colors.textTertiary, marginTop: 2 },
   contactCard: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 12,
-    padding: 14,
-    gap: 8,
+    backgroundColor: '#fff', marginHorizontal: 16, marginBottom: 12,
+    borderRadius: 12, padding: 12, gap: 8,
   },
-  contactRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  contactText: { fontSize: 14, color: colors.textSecondary },
+  contactRow:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  contactText: { fontSize: 13, color: colors.textSecondary },
   tableHeader: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 8,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
     backgroundColor: colors.background,
   },
   col: {
-    flex: 1,
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    flex: 1, fontSize: 10, fontWeight: '700', color: colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.4,
   },
   txnRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: '#fff',
-    alignItems: 'center',
+    flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 11,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+    backgroundColor: '#fff', alignItems: 'center',
   },
-  txnDesc: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.textPrimary,
+  txnRowPayment: { backgroundColor: '#F0FDF4' },
+  txnRowJournal: { backgroundColor: '#FAF5FF' },
+  txnTitleRow:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  txnDesc:  { fontSize: 13, fontWeight: '500', color: colors.textPrimary, flex: 1 },
+  txnDate:  { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
+  txnRef:   { fontSize: 11, color: colors.textTertiary },
+  txnDebit:  { flex: 1, fontSize: 12, fontWeight: '600', color: '#10B981' },
+  txnCredit: { flex: 1, fontSize: 12, fontWeight: '600', color: '#EF4444' },
+  txnBalance:{ flex: 1, fontSize: 12, fontWeight: '700', textAlign: 'right' },
+  totalRow: {
+    flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12,
+    borderTopWidth: 2, borderTopColor: colors.border,
+    backgroundColor: colors.background,
   },
-  txnDate: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  txnAmount: { flex: 1, fontSize: 13, fontWeight: '600' },
-  emptyText: {
-    textAlign: 'center',
-    color: colors.textTertiary,
-    padding: 40,
-    fontSize: 14,
-  },
+  totalCell:   { flex: 3, fontSize: 13, fontWeight: '700', color: colors.textPrimary },
+  totalDebit:  { flex: 1, fontSize: 12, fontWeight: '700', color: '#10B981' },
+  totalCredit: { flex: 1, fontSize: 12, fontWeight: '700', color: '#EF4444' },
+  totalBalance:{ flex: 1, fontSize: 12, fontWeight: '700', textAlign: 'right' },
+  emptyBox:  { alignItems: 'center', paddingTop: 60, gap: 10, paddingHorizontal: 40 },
+  emptyTitle:{ fontSize: 16, fontWeight: '600', color: colors.textSecondary },
+  emptySub:  { fontSize: 13, color: colors.textTertiary, textAlign: 'center', lineHeight: 20 },
 });

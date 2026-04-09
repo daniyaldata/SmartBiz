@@ -26,8 +26,9 @@ export default function AccountLedgerScreen({ route, navigation }) {
   const cur = biz.meta?.currency || 'PKR';
 
   // Build all transactions for this account
-  const txns = [
-    // Opening balance entry
+  const rawTxns = [
+
+    // Opening balance
     ...(account.openingBalance > 0 ? [{
       id: 'ob',
       date: biz.meta?.createdAt || new Date().toISOString(),
@@ -35,51 +36,111 @@ export default function AccountLedgerScreen({ route, navigation }) {
       type: 'opening',
       in: account.openingBalance,
       out: 0,
+      ref: null,
     }] : []),
 
-    // Receipts (money in)
-    ...(biz.receipts || [])
-      .filter(r => r.accountId === accountId)
-      .map(r => ({
-        id: r.id,
-        date: r.date,
-        description: `Receipt — ${r.customerName || ''}`,
+    // Receipts — money in
+    ...(biz.transactions || [])
+      .filter(t => t.transactionType === 'receipt' && t.accountId === accountId)
+      .map(t => ({
+        id: t.id,
+        date: t.date,
+        description: t.partyName
+          ? `Receipt — ${t.partyName}`
+          : t.incomeAccountName
+          ? `Receipt — ${t.incomeAccountName}`
+          : 'Receipt',
         type: 'receipt',
-        in: r.amount || 0,
+        in: t.amount || 0,
         out: 0,
-        ref: r.reference,
+        ref: t.reference || null,
       })),
 
-    // Payments (money out)
-    ...(biz.payments || [])
-      .filter(p => p.accountId === accountId)
-      .map(p => ({
-        id: p.id,
-        date: p.date,
-        description: `Payment — ${p.supplierName || ''}`,
+    // Payments — money out
+    ...(biz.transactions || [])
+      .filter(t => t.transactionType === 'payment' && t.accountId === accountId)
+      .map(t => ({
+        id: t.id,
+        date: t.date,
+        description: t.partyName
+          ? `Payment — ${t.partyName}`
+          : t.expenseAccountName
+          ? `Payment — ${t.expenseAccountName}`
+          : 'Payment',
         type: 'payment',
         in: 0,
-        out: p.amount || 0,
-        ref: p.reference,
+        out: t.amount || 0,
+        ref: t.reference || null,
       })),
+
+    // Transfers in
+    ...(biz.transactions || [])
+      .filter(t => t.transactionType === 'transfer' && t.toAccountId === accountId)
+      .map(t => ({
+        id: t.id + '_in',
+        date: t.date,
+        description: `Transfer from ${t.fromAccountName || 'account'}`,
+        type: 'transfer',
+        in: t.amount || 0,
+        out: 0,
+        ref: t.reference || null,
+      })),
+
+    // Transfers out
+    ...(biz.transactions || [])
+      .filter(t => t.transactionType === 'transfer' && t.fromAccountId === accountId)
+      .map(t => ({
+        id: t.id + '_out',
+        date: t.date,
+        description: `Transfer to ${t.toAccountName || 'account'}`,
+        type: 'transfer',
+        in: 0,
+        out: t.amount || 0,
+        ref: t.reference || null,
+      })),
+
+    // Journal entries affecting this account
+    ...(biz.journalEntries || []).flatMap(je =>
+      (je.lines || [])
+        .filter(line =>
+          line.accountId === accountId && line.accountCategory === 'bank'
+        )
+        .map(line => ({
+          id: `${je.id}_${line.lineId}`,
+          date: je.date,
+          description: `Journal — ${je.description}`,
+          type: 'journal',
+          // Debit = money in, Credit = money out
+          in: line.debit || 0,
+          out: line.credit || 0,
+          ref: null,
+        }))
+    ),
+
   ].sort((a, b) => new Date(a.date) - new Date(b.date));
 
   // Calculate running balance
   let running = 0;
-  const txnsWithBalance = txns.map(t => {
+  const txns = rawTxns.map(t => {
     running += t.in - t.out;
     return { ...t, runningBalance: running };
   });
 
-  const getTypeColor = (type) => {
-    if (type === 'receipt' || type === 'opening') return '#10B981';
-    return '#EF4444';
+  const getTypeIcon = (type) => {
+    if (type === 'opening')  return 'flag-outline';
+    if (type === 'receipt')  return 'arrow-down-outline';
+    if (type === 'payment')  return 'arrow-up-outline';
+    if (type === 'transfer') return 'swap-horizontal-outline';
+    if (type === 'journal')  return 'book-outline';
+    return 'ellipse-outline';
   };
 
-  const getTypeIcon = (type) => {
-    if (type === 'opening') return 'flag-outline';
-    if (type === 'receipt') return 'arrow-down-outline';
-    return 'arrow-up-outline';
+  const getTypeColor = (type) => {
+    if (type === 'receipt' || type === 'opening') return '#10B981';
+    if (type === 'payment') return '#EF4444';
+    if (type === 'transfer') return '#8B5CF6';
+    if (type === 'journal') return '#8B5CF6';
+    return colors.textSecondary;
   };
 
   return (
@@ -88,14 +149,11 @@ export default function AccountLedgerScreen({ route, navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.title}>{account.name}</Text>
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Accounts', { businessId })}
-        >
-          <Ionicons name="create-outline" size={22} color={colors.primary} />
-        </TouchableOpacity>
+        <Text style={styles.title} numberOfLines={1}>{account.name}</Text>
+        <View style={{ width: 22 }} />
       </View>
 
+      {/* Balance card */}
       <View style={styles.balanceCard}>
         <Text style={styles.balanceLabel}>Current Balance</Text>
         <Text style={[
@@ -104,9 +162,9 @@ export default function AccountLedgerScreen({ route, navigation }) {
         ]}>
           {cur} {(account.balance || 0).toLocaleString()}
         </Text>
-        {account.openingBalance > 0 && (
+        {(account.openingBalance || 0) > 0 && (
           <Text style={styles.balanceSub}>
-            Opening balance: {cur} {account.openingBalance.toLocaleString()}
+            Opening: {cur} {account.openingBalance.toLocaleString()}
           </Text>
         )}
       </View>
@@ -120,7 +178,7 @@ export default function AccountLedgerScreen({ route, navigation }) {
       </View>
 
       <FlatList
-        data={txnsWithBalance}
+        data={txns}
         keyExtractor={t => t.id}
         contentContainerStyle={{ paddingBottom: 40 }}
         ListEmptyComponent={
@@ -140,12 +198,13 @@ export default function AccountLedgerScreen({ route, navigation }) {
           <View style={[
             styles.txnRow,
             item.type === 'opening' && styles.txnRowOpening,
+            item.type === 'journal' && styles.txnRowJournal,
           ]}>
             <View style={{ flex: 3 }}>
               <View style={styles.txnTitleRow}>
                 <Ionicons
                   name={getTypeIcon(item.type)}
-                  size={14}
+                  size={13}
                   color={getTypeColor(item.type)}
                 />
                 <Text style={styles.txnDesc} numberOfLines={1}>
@@ -159,16 +218,10 @@ export default function AccountLedgerScreen({ route, navigation }) {
                 <Text style={styles.txnRef}>Ref: {item.ref}</Text>
               ) : null}
             </View>
-            <Text style={[
-              styles.txnAmount,
-              { color: '#10B981', textAlign: 'right' },
-            ]}>
+            <Text style={[styles.txnIn, { textAlign: 'right' }]}>
               {item.in > 0 ? `${cur} ${item.in.toLocaleString()}` : '—'}
             </Text>
-            <Text style={[
-              styles.txnAmount,
-              { color: '#EF4444', textAlign: 'right' },
-            ]}>
+            <Text style={[styles.txnOut, { textAlign: 'right' }]}>
               {item.out > 0 ? `${cur} ${item.out.toLocaleString()}` : '—'}
             </Text>
             <Text style={[
@@ -187,85 +240,43 @@ export default function AccountLedgerScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border,
   },
-  title: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
+  title: { fontSize: 17, fontWeight: '700', color: colors.textPrimary, flex: 1, textAlign: 'center' },
   balanceCard: {
-    backgroundColor: '#fff',
-    margin: 16,
-    borderRadius: 16,
-    padding: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-    gap: 4,
+    backgroundColor: '#fff', margin: 16, borderRadius: 16, padding: 20,
+    alignItems: 'center', shadowColor: '#000',
+    shadowOpacity: 0.05, shadowRadius: 8, elevation: 2, gap: 4,
   },
-  balanceLabel: { fontSize: 13, color: colors.textSecondary },
+  balanceLabel:  { fontSize: 13, color: colors.textSecondary },
   balanceAmount: { fontSize: 28, fontWeight: '700' },
-  balanceSub: { fontSize: 12, color: colors.textTertiary, marginTop: 2 },
+  balanceSub:    { fontSize: 12, color: colors.textTertiary, marginTop: 2 },
   tableHeader: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 8,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
     backgroundColor: colors.background,
   },
   col: {
-    flex: 1,
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    flex: 1, fontSize: 10, fontWeight: '700', color: colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.4,
   },
   txnRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: '#fff',
-    alignItems: 'center',
+    flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 11,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+    backgroundColor: '#fff', alignItems: 'center',
   },
-  txnRowOpening: {
-    backgroundColor: '#F0FDF4',
-  },
-  txnTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  txnDesc: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.textPrimary,
-    flex: 1,
-  },
-  txnDate: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
-  txnRef: { fontSize: 11, color: colors.textTertiary },
-  txnAmount: { flex: 1, fontSize: 12, fontWeight: '600' },
+  txnRowOpening: { backgroundColor: '#F0FDF4' },
+  txnRowJournal: { backgroundColor: '#FAF5FF' },
+  txnTitleRow:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  txnDesc:  { fontSize: 13, fontWeight: '500', color: colors.textPrimary, flex: 1 },
+  txnDate:  { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
+  txnRef:   { fontSize: 11, color: colors.textTertiary },
+  txnIn:    { flex: 1, fontSize: 12, fontWeight: '600', color: '#10B981' },
+  txnOut:   { flex: 1, fontSize: 12, fontWeight: '600', color: '#EF4444' },
   txnBalance: { flex: 1, fontSize: 12, fontWeight: '700', textAlign: 'right' },
-  emptyBox: {
-    alignItems: 'center',
-    paddingTop: 60,
-    gap: 10,
-    paddingHorizontal: 40,
-  },
-  emptyTitle: { fontSize: 16, fontWeight: '600', color: colors.textSecondary },
-  emptySub: {
-    fontSize: 13,
-    color: colors.textTertiary,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
+  emptyBox:  { alignItems: 'center', paddingTop: 60, gap: 10, paddingHorizontal: 40 },
+  emptyTitle:{ fontSize: 16, fontWeight: '600', color: colors.textSecondary },
+  emptySub:  { fontSize: 13, color: colors.textTertiary, textAlign: 'center', lineHeight: 20 },
 });
