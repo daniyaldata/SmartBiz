@@ -1,5 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
@@ -41,12 +43,17 @@ const blocks = [
 
 export default function MoneyScreen({ route, navigation }) {
   const businessId = route?.params?.businessId;
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Money</Text>
       </View>
-      <ScrollView contentContainerStyle={styles.grid}>
+
+      <ScrollView
+        contentContainerStyle={styles.grid}
+        showsVerticalScrollIndicator={false}
+      >
         {blocks.map(b => (
           <TouchableOpacity
             key={b.label}
@@ -61,6 +68,15 @@ export default function MoneyScreen({ route, navigation }) {
           </TouchableOpacity>
         ))}
       </ScrollView>
+
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() =>
+          navigation.navigate('TransactionForm', { businessId })
+        }
+      >
+        <Ionicons name="add" size={30} color="#fff" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -68,20 +84,64 @@ export default function MoneyScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
-    paddingHorizontal: 20, paddingVertical: 16,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary },
-  grid: { padding: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  grid: {
+    padding: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingBottom: 100,
+  },
   block: {
-    width: '47%', backgroundColor: '#fff', borderRadius: 16, padding: 16,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 }, elevation: 2,
+    width: '47%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   iconWrap: {
-    width: 52, height: 52, borderRadius: 14,
-    justifyContent: 'center', alignItems: 'center', marginBottom: 12,
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
   },
-  blockLabel: { fontSize: 14, fontWeight: '700', color: colors.textPrimary, marginBottom: 4 },
-  blockSub: { fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
+  blockLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  blockSub: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 17,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 28,
+    right: 20,
+    backgroundColor: colors.primary,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: colors.primary,
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
 });
