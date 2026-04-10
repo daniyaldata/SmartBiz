@@ -23,14 +23,14 @@ const blocks = [
     route: 'SalesInvoices',
     sub: 'Create, track, share PDF',
   },
-  {
-    label: 'Sales Quotes',
-    icon: 'clipboard-outline',
-    color: '#F59E0B',
-    bg: '#FFFBEB',
-    route: 'SalesInvoices',
-    sub: 'Convert to invoice',
-  },
+ {
+  label: 'Sales Quotes',
+  icon: 'clipboard-outline',
+  color: '#F59E0B',
+  bg: '#FFFBEB',
+  route: 'SalesQuotes',
+  sub: 'Convert to invoice',
+},
 ];
 
 export default function SalesScreen({ route, navigation }) {

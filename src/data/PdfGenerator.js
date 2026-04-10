@@ -421,3 +421,47 @@ export const generatePaymentPdf = async (payment, business) => {
     }.pdf`
   );
 };
+// ─── QUOTE (Sales or Purchase) ────────────────────────────────────────────────
+export const generateQuotePdf = async (quote, business, type = 'sales') => {
+  const cur = business.meta?.currency || 'PKR';
+  const isSales = type === 'sales';
+  const accentColor = isSales ? '#0077C5' : '#EF4444';
+  const partyLabel = isSales ? 'Customer' : 'Supplier';
+  const partyName  = isSales ? quote.customerName : quote.supplierName;
+  const prefix     = isSales ? 'QUO' : 'PQUO';
+  const docType    = isSales ? 'SALES QUOTE' : 'PURCHASE QUOTE';
+
+  const lineRows = buildLineRows(quote.lines || []);
+  const total    = quote.total || 0;
+  const isInvoiced = !!quote.convertedToInvoiceId;
+
+  const html = buildHtml({
+    accentColor,
+    bizName:    business.meta?.name || 'My Business',
+    logoHtml:   getLogoHtml(business),
+    docType,
+    docNumber:  `${prefix}-${quote.number || quote.id?.slice(-4) || '0001'}`,
+    statusColor: isInvoiced ? '#16A34A' : accentColor,
+    statusLabel: isInvoiced ? 'INVOICED' : 'QUOTE',
+    partyLabel,
+    partyName,
+    date:     fmtDate(quote.date),
+    dueDate:  quote.expiryDate ? fmtDate(quote.expiryDate) : null,
+    lineRows,
+    cur,
+    total,
+    paid:    0,
+    balance: null,
+    notes:   quote.notes,
+    extraFields: quote.expiryDate
+      ? `<div class="info-sub">Expiry: ${fmtDate(quote.expiryDate)}</div>`
+      : null,
+  });
+
+  await shareDocument(
+    html,
+    `${docType.replace(' ', '_')}_${
+      partyName?.replace(/\s+/g, '_') || 'Quote'
+    }_${quote.number || quote.id?.slice(-4)}.pdf`
+  );
+};

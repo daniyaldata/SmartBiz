@@ -23,14 +23,14 @@ const blocks = [
     route: 'PurchaseInvoices',
     sub: 'Track what you owe',
   },
-  {
-    label: 'Purchase Orders',
-    icon: 'clipboard-outline',
-    color: '#8B5CF6',
-    bg: '#F5F3FF',
-    route: 'PurchaseInvoices',
-    sub: 'Convert to invoice',
-  },
+ {
+  label: 'Purchase Quotes',
+  icon: 'clipboard-outline',
+  color: '#8B5CF6',
+  bg: '#F5F3FF',
+  route: 'PurchaseQuotes',
+  sub: 'Convert to invoice',
+},
 ];
 
 export default function PurchasesScreen({ route, navigation }) {

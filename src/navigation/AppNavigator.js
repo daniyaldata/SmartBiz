@@ -16,6 +16,9 @@ import CustomerLedgerScreen from '../screens/sales/CustomerLedgerScreen';
 import SalesInvoicesScreen from '../screens/sales/SalesInvoicesScreen';
 import SalesInvoiceFormScreen from '../screens/sales/SalesInvoiceFormScreen';
 import SalesInvoiceViewScreen from '../screens/sales/SalesInvoiceViewScreen';
+import SalesQuotesScreen from '../screens/sales/SalesQuotesScreen';
+import SalesQuoteFormScreen from '../screens/sales/SalesQuoteFormScreen';
+import SalesQuoteViewScreen from '../screens/sales/SalesQuoteViewScreen';
 
 import SuppliersScreen from '../screens/purchases/SuppliersScreen';
 import SupplierFormScreen from '../screens/purchases/SupplierFormScreen';
@@ -23,6 +26,9 @@ import SupplierLedgerScreen from '../screens/purchases/SupplierLedgerScreen';
 import PurchaseInvoicesScreen from '../screens/purchases/PurchaseInvoicesScreen';
 import PurchaseInvoiceFormScreen from '../screens/purchases/PurchaseInvoiceFormScreen';
 import PurchaseInvoiceViewScreen from '../screens/purchases/PurchaseInvoiceViewScreen';
+import PurchaseQuotesScreen from '../screens/purchases/PurchaseQuotesScreen';
+import PurchaseQuoteFormScreen from '../screens/purchases/PurchaseQuoteFormScreen';
+import PurchaseQuoteViewScreen from '../screens/purchases/PurchaseQuoteViewScreen';
 
 import AccountsScreen from '../screens/money/AccountsScreen';
 import AccountLedgerScreen from '../screens/money/AccountLedgerScreen';
@@ -101,6 +107,9 @@ export default function AppNavigator({ route }) {
       <Stack.Screen name="SalesInvoices" component={SalesInvoicesScreen} />
       <Stack.Screen name="SalesInvoiceForm" component={SalesInvoiceFormScreen} />
       <Stack.Screen name="SalesInvoiceView" component={SalesInvoiceViewScreen} />
+      <Stack.Screen name="SalesQuotes" component={SalesQuotesScreen} />
+      <Stack.Screen name="SalesQuoteForm" component={SalesQuoteFormScreen} />
+      <Stack.Screen name="SalesQuoteView" component={SalesQuoteViewScreen} />
 
       <Stack.Screen name="Suppliers" component={SuppliersScreen} />
       <Stack.Screen name="SupplierForm" component={SupplierFormScreen} />
@@ -108,6 +117,9 @@ export default function AppNavigator({ route }) {
       <Stack.Screen name="PurchaseInvoices" component={PurchaseInvoicesScreen} />
       <Stack.Screen name="PurchaseInvoiceForm" component={PurchaseInvoiceFormScreen} />
       <Stack.Screen name="PurchaseInvoiceView" component={PurchaseInvoiceViewScreen} />
+      <Stack.Screen name="PurchaseQuotes" component={PurchaseQuotesScreen} />
+      <Stack.Screen name="PurchaseQuoteForm" component={PurchaseQuoteFormScreen} />
+      <Stack.Screen name="PurchaseQuoteView" component={PurchaseQuoteViewScreen} />
 
       <Stack.Screen name="Accounts" component={AccountsScreen} />
       <Stack.Screen name="AccountLedger" component={AccountLedgerScreen} />
