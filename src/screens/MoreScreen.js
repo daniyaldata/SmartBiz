@@ -27,24 +27,31 @@ const sections = [
     ],
   },
   {
-    title: 'Accounting',
-    items: [
-      {
-        label: 'Income & Expense Accounts',
-        icon: 'bar-chart-outline',
-        color: '#10B981',
-        bg: '#ECFDF5',
-        route: 'AccountsManager',
-      },
-      {
-        label: 'Journal Entries',
-        icon: 'book-outline',
-        color: '#8B5CF6',
-        bg: '#F5F3FF',
-        route: 'JournalEntries',
-      },
-    ],
-  },
+  title: 'Accounting',
+  items: [
+    {
+      label: 'Statistics & Reports',
+      icon: 'bar-chart-outline',
+      color: '#0077C5',
+      bg: '#E8F4FD',
+      route: 'Statistics',
+    },
+    {
+      label: 'Income & Expense Accounts',
+      icon: 'trending-up-outline',
+      color: '#10B981',
+      bg: '#ECFDF5',
+      route: 'AccountsManager',
+    },
+    {
+      label: 'Journal Entries',
+      icon: 'book-outline',
+      color: '#8B5CF6',
+      bg: '#F5F3FF',
+      route: 'JournalEntries',
+    },
+  ],
+},
   {
     title: 'Business',
     items: [

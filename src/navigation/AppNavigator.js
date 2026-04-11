@@ -44,6 +44,7 @@ import BackupRestoreScreen from '../screens/more/BackupRestoreScreen';
 import AccountsManagerScreen from '../screens/more/AccountsManagerScreen';
 import InventoryWriteOffScreen from '../screens/more/InventoryWriteOffScreen';
 import JournalEntriesScreen from '../screens/more/JournalEntriesScreen';
+import StatisticsScreen from '../screens/more/StatisticsScreen';
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
@@ -135,6 +136,7 @@ export default function AppNavigator({ route }) {
       <Stack.Screen name="AccountsManager" component={AccountsManagerScreen} />
       <Stack.Screen name="InventoryWriteOff" component={InventoryWriteOffScreen} />
       <Stack.Screen name="JournalEntries" component={JournalEntriesScreen} />
+      <Stack.Screen name="Statistics" component={StatisticsScreen} />
     </Stack.Navigator>
   );
 }
