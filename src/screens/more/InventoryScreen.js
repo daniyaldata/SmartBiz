@@ -48,9 +48,12 @@ export default function InventoryScreen({ route, navigation }) {
           <TouchableOpacity
             style={styles.card}
             onPress={() =>
-              navigation.navigate('ItemForm', { businessId, itemId: item.id })
-            }
+            navigation.navigate('InventoryLedger', {
+            businessId, itemId: item.id,
+            })
+          }
           >
+
             <View style={styles.itemIcon}>
               <Ionicons name="cube-outline" size={22} color="#3B82F6" />
             </View>
@@ -60,14 +63,24 @@ export default function InventoryScreen({ route, navigation }) {
                 Stock: {item.stock || 0} units
               </Text>
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.salePrice}>
-                {cur} {(item.salePrice || 0).toLocaleString()}
-              </Text>
-              <Text style={styles.costPrice}>
-                Cost: {cur} {(item.costPrice || 0).toLocaleString()}
-              </Text>
-            </View>
+
+            <View style={{ alignItems: 'flex-end', gap: 6 }}>
+            <TouchableOpacity
+             onPress={() =>
+              navigation.navigate('ItemForm', { businessId, itemId: item.id })
+             }
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+             <Ionicons name="create-outline" size={18} color={colors.textTertiary} />
+            </TouchableOpacity>
+
+  <Text style={styles.salePrice}>
+    {cur} {(item.salePrice || 0).toLocaleString()}
+  </Text>
+  <Text style={styles.costPrice}>
+    Cost: {cur} {(item.costPrice || 0).toLocaleString()}
+  </Text>
+</View>
           </TouchableOpacity>
         )}
       />

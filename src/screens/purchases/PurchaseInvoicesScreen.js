@@ -63,7 +63,7 @@ export default function PurchaseInvoicesScreen({ route, navigation }) {
             <TouchableOpacity
               style={styles.row}
               onPress={() =>
-                navigation.navigate('PurchaseInvoiceForm', {
+                navigation.navigate('PurchaseInvoiceView', {
                   businessId,
                   invoiceId: item.id,
                 })

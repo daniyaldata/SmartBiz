@@ -1,7 +1,6 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, Dimensions,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -9,32 +8,28 @@ import { Ionicons } from '@expo/vector-icons';
 import { loadBusiness } from '../../data/BusinessStore';
 import { colors } from '../../theme/colors';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
 const PERIODS = [
-  { id: 'today',  label: 'Today' },
-  { id: 'week',   label: 'This week' },
-  { id: 'month',  label: 'This month' },
-  { id: 'year',   label: 'This year' },
+  { id: 'today', label: 'Today' },
+  { id: 'week',  label: 'This week' },
+  { id: 'month', label: 'This month' },
+  { id: 'year',  label: 'This year' },
 ];
 
-// ─── Date range helpers ───────────────────────────────────────────────────────
-
 const getDateRange = (period) => {
-  const now = new Date();
+  const now   = new Date();
   const start = new Date();
   const end   = new Date();
   end.setHours(23, 59, 59, 999);
-
   switch (period) {
     case 'today':
       start.setHours(0, 0, 0, 0);
       break;
-    case 'week':
+    case 'week': {
       const day = now.getDay();
       start.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
       start.setHours(0, 0, 0, 0);
       break;
+    }
     case 'month':
       start.setDate(1);
       start.setHours(0, 0, 0, 0);
@@ -55,8 +50,6 @@ const inRange = (dateStr, start, end) => {
   return d >= start && d <= end;
 };
 
-// ─── Stats calculator ─────────────────────────────────────────────────────────
-
 const calcStats = (biz, period) => {
   if (!biz) return null;
   const { start, end } = getDateRange(period);
@@ -65,46 +58,55 @@ const calcStats = (biz, period) => {
   // ── Revenue: sales invoices in period
   const salesInvoices = (biz.salesInvoices || [])
     .filter(i => inRange(i.date, start, end));
-  const totalSales = salesInvoices.reduce((s, i) => s + (i.total || 0), 0);
+  const totalSales   = salesInvoices.reduce((s, i) => s + (i.total || 0), 0);
   const invoiceCount = salesInvoices.length;
 
-  // ── COGS: payments to expense account "Cost of Goods Sold" (exp-1 code 5000)
-  //    + journal entries debiting COGS
-  const cogsFromPayments = (biz.transactions || [])
+  // ── COGS: total of purchase invoices in period (actual inventory purchases)
+  // This is the correct accounting: Sales - Purchases = Gross Profit
+  const purchaseInvoices = (biz.purchaseInvoices || [])
+    .filter(i => inRange(i.date, start, end));
+  const totalCOGS = purchaseInvoices.reduce((s, i) => s + (i.total || 0), 0);
+
+  const grossProfit = totalSales - totalCOGS;
+  const grossMargin = totalSales > 0
+    ? ((grossProfit / totalSales) * 100).toFixed(1)
+    : '0.0';
+
+  // ── Other income: receipts linked to income accounts (not customer invoices)
+  const otherIncome = (biz.transactions || [])
     .filter(t =>
-      t.transactionType === 'payment' &&
+      t.transactionType === 'receipt' &&
       inRange(t.date, start, end) &&
-      (t.expenseAccountId === 'exp-1' ||
-        t.expenseAccountName?.toLowerCase().includes('cost of goods'))
+      t.incomeAccountId &&
+      !t.partyId
     )
     .reduce((s, t) => s + (t.amount || 0), 0);
 
-  const cogsFromJournals = (biz.journalEntries || [])
-    .filter(je => inRange(je.date, start, end))
-    .flatMap(je => je.lines || [])
-    .filter(line =>
-      line.accountCategory === 'expense' &&
-      (line.accountId === 'exp-1' ||
-        line.accountName?.toLowerCase().includes('cost of goods'))
-    )
-    .reduce((s, line) => s + (line.debit || 0), 0);
-
-  const totalCOGS = cogsFromPayments + cogsFromJournals;
-  const grossProfit = totalSales - totalCOGS;
-
-  // ── Expenses by category: payments + journal entries
+  // ── Operating expenses by category (payments + journal entries)
+  // Excludes COGS since that's already in purchases above
   const expenseMap = {};
 
   (biz.transactions || [])
     .filter(t =>
       t.transactionType === 'payment' &&
       inRange(t.date, start, end) &&
-      t.expenseAccountId
+      t.expenseAccountId &&
+      !t.isWriteOff
     )
     .forEach(t => {
       const key = t.expenseAccountName || 'Other';
       expenseMap[key] = (expenseMap[key] || 0) + (t.amount || 0);
     });
+
+  // Write-offs as separate expense category
+  const writeOffTotal = (biz.inventoryWriteOffs || [])
+    .filter(w => inRange(w.date, start, end))
+    .reduce((s, w) => s + (w.amount || 0), 0);
+
+  if (writeOffTotal > 0) {
+    expenseMap['Inventory Write-offs'] =
+      (expenseMap['Inventory Write-offs'] || 0) + writeOffTotal;
+  }
 
   (biz.journalEntries || [])
     .filter(je => inRange(je.date, start, end))
@@ -116,22 +118,27 @@ const calcStats = (biz, period) => {
     });
 
   const totalExpenses = Object.values(expenseMap).reduce((s, v) => s + v, 0);
-  const netProfit = grossProfit - totalExpenses;
+
+  // Net Profit = Gross Profit + Other Income - Expenses
+  const netProfit = grossProfit + otherIncome - totalExpenses;
   const netMargin = totalSales > 0
     ? ((netProfit / totalSales) * 100).toFixed(1)
     : '0.0';
 
-  // ── Income (other income sources)
-  const otherIncome = (biz.transactions || [])
+  // ── Cash flow in period
+  const totalReceipts = (biz.transactions || [])
     .filter(t =>
-      t.transactionType === 'receipt' &&
-      inRange(t.date, start, end) &&
-      t.incomeAccountId &&
-      !t.partyId
+      t.transactionType === 'receipt' && inRange(t.date, start, end)
     )
     .reduce((s, t) => s + (t.amount || 0), 0);
 
-  // ── Cash position (current, not period-specific)
+  const totalPaymentsOut = (biz.transactions || [])
+    .filter(t =>
+      t.transactionType === 'payment' && inRange(t.date, start, end)
+    )
+    .reduce((s, t) => s + (t.amount || 0), 0);
+
+  // ── Current balances (not period-filtered — always shows live position)
   const totalCash = (biz.bankAccounts || [])
     .filter(a => a.type === 'cash')
     .reduce((s, a) => s + (a.balance || 0), 0);
@@ -140,57 +147,32 @@ const calcStats = (biz, period) => {
     .filter(a => a.type !== 'cash')
     .reduce((s, a) => s + (a.balance || 0), 0);
 
-  // ── Receivables and payables (current)
   const totalReceivables = (biz.salesInvoices || [])
     .reduce((s, i) => s + Math.max(0, (i.total || 0) - (i.amountPaid || 0)), 0);
 
   const totalPayables = (biz.purchaseInvoices || [])
     .reduce((s, i) => s + Math.max(0, (i.total || 0) - (i.amountPaid || 0)), 0);
 
-  // ── Expense breakdown sorted
   const expenseBreakdown = Object.entries(expenseMap)
     .map(([name, amount]) => ({ name, amount }))
     .sort((a, b) => b.amount - a.amount);
 
-  // ── Receipts in period
-  const totalReceipts = (biz.transactions || [])
-    .filter(t =>
-      t.transactionType === 'receipt' && inRange(t.date, start, end)
-    )
-    .reduce((s, t) => s + (t.amount || 0), 0);
-
-  // ── Payments out in period
-  const totalPaymentsOut = (biz.transactions || [])
-    .filter(t =>
-      t.transactionType === 'payment' && inRange(t.date, start, end)
-    )
-    .reduce((s, t) => s + (t.amount || 0), 0);
-
   return {
-    cur,
-    totalSales, invoiceCount,
-    totalCOGS, grossProfit,
-    grossMargin: totalSales > 0
-      ? ((grossProfit / totalSales) * 100).toFixed(1) : '0.0',
-    totalExpenses,
-    otherIncome,
+    cur, totalSales, invoiceCount,
+    totalCOGS, purchaseCount: purchaseInvoices.length,
+    grossProfit, grossMargin,
+    otherIncome, totalExpenses,
     netProfit, netMargin,
+    totalReceipts, totalPaymentsOut,
     totalCash, totalBank,
+    totalBalance: totalCash + totalBank,
     totalReceivables, totalPayables,
     expenseBreakdown,
-    totalReceipts, totalPaymentsOut,
-    totalBalance: totalCash + totalBank,
   };
 };
 
-// ─── Formatting ───────────────────────────────────────────────────────────────
-
-const fmt = (n) => {
-  if (!n && n !== 0) return '0';
-  return Math.round(n).toLocaleString();
-};
-
-// ─── Components ───────────────────────────────────────────────────────────────
+const fmt = (n) =>
+  !n && n !== 0 ? '0' : Math.round(n).toLocaleString();
 
 const StatCard = ({ label, value, sub, iconName, iconBg, valueColor }) => (
   <View style={styles.statCard}>
@@ -209,10 +191,6 @@ const SectionLabel = ({ title }) => (
   <Text style={styles.sectionLabel}>{title}</Text>
 );
 
-const Card = ({ children, style }) => (
-  <View style={[styles.card, style]}>{children}</View>
-);
-
 const BalanceRow = ({ label, value, valueColor, borderBottom = true }) => (
   <View style={[styles.balanceRow, !borderBottom && { borderBottomWidth: 0 }]}>
     <Text style={styles.balanceLabel}>{label}</Text>
@@ -222,7 +200,10 @@ const BalanceRow = ({ label, value, valueColor, borderBottom = true }) => (
   </View>
 );
 
-// ─── Main screen ─────────────────────────────────────────────────────────────
+const EXPENSE_COLORS = [
+  '#EF4444', '#F97316', '#EAB308',
+  '#8B5CF6', '#3B82F6', '#10B981', '#6B7280',
+];
 
 export default function StatisticsScreen({ route, navigation }) {
   const businessId = route?.params?.businessId;
@@ -236,7 +217,7 @@ export default function StatisticsScreen({ route, navigation }) {
   );
 
   const stats = calcStats(biz, period);
-  const cur = stats?.cur || 'PKR';
+  const cur   = stats?.cur || 'PKR';
 
   const getPeriodLabel = () => {
     const now = new Date();
@@ -254,11 +235,6 @@ export default function StatisticsScreen({ route, navigation }) {
 
   const maxExpense = stats?.expenseBreakdown?.[0]?.amount || 1;
 
-  const EXPENSE_COLORS = [
-    '#EF4444', '#F97316', '#EAB308',
-    '#8B5CF6', '#3B82F6', '#10B981', '#6B7280',
-  ];
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -269,15 +245,11 @@ export default function StatisticsScreen({ route, navigation }) {
         <View style={{ width: 22 }} />
       </View>
 
-      {/* Period selector */}
       <View style={styles.periodBar}>
         {PERIODS.map(p => (
           <TouchableOpacity
             key={p.id}
-            style={[
-              styles.periodBtn,
-              period === p.id && styles.periodBtnActive,
-            ]}
+            style={[styles.periodBtn, period === p.id && styles.periodBtnActive]}
             onPress={() => setPeriod(p.id)}
           >
             <Text style={[
@@ -303,17 +275,17 @@ export default function StatisticsScreen({ route, navigation }) {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
+          <SectionLabel title="Profit & Loss" />
 
-          {/* ── Hero profit card ── */}
-          <SectionLabel title="Profit summary" />
+          {/* Hero card */}
           <View style={styles.heroCard}>
             <Text style={styles.heroLabel}>Net Profit</Text>
             <Text style={[
               styles.heroAmount,
               { color: stats.netProfit >= 0 ? '#fff' : '#FCA5A5' },
             ]}>
-              {cur} {fmt(Math.abs(stats.netProfit))}
-              {stats.netProfit < 0 ? ' (Loss)' : ''}
+              {stats.netProfit < 0 ? '- ' : ''}{cur} {fmt(Math.abs(stats.netProfit))}
+              {stats.netProfit < 0 ? '  (Loss)' : ''}
             </Text>
             <Text style={styles.heroPeriod}>{getPeriodLabel()}</Text>
             <View style={styles.heroRow}>
@@ -323,8 +295,8 @@ export default function StatisticsScreen({ route, navigation }) {
               </View>
               <View style={styles.heroStatDivider} />
               <View style={styles.heroStat}>
-                <Text style={styles.heroStatLabel}>Expenses</Text>
-                <Text style={styles.heroStatVal}>{fmt(stats.totalExpenses)}</Text>
+                <Text style={styles.heroStatLabel}>Purchases</Text>
+                <Text style={styles.heroStatVal}>{fmt(stats.totalCOGS)}</Text>
               </View>
               <View style={styles.heroStatDivider} />
               <View style={styles.heroStat}>
@@ -334,20 +306,58 @@ export default function StatisticsScreen({ route, navigation }) {
             </View>
           </View>
 
-          {/* ── 4 stat cards ── */}
+          {/* P&L breakdown card */}
+          <View style={[styles.card, { marginBottom: 10 }]}>
+            <Text style={styles.cardTitle}>Profit & Loss breakdown</Text>
+            <BalanceRow
+              label="Total Sales (Revenue)"
+              value={`+ ${cur} ${fmt(stats.totalSales)}`}
+              valueColor="#10B981"
+            />
+            <BalanceRow
+              label={`Less: Purchases (${stats.purchaseCount} bills)`}
+              value={`- ${cur} ${fmt(stats.totalCOGS)}`}
+              valueColor="#EF4444"
+            />
+            <BalanceRow
+              label="Gross Profit"
+              value={`${cur} ${fmt(stats.grossProfit)}`}
+              valueColor={stats.grossProfit >= 0 ? colors.primary : '#EF4444'}
+            />
+            {stats.otherIncome > 0 && (
+              <BalanceRow
+                label="Add: Other Income"
+                value={`+ ${cur} ${fmt(stats.otherIncome)}`}
+                valueColor="#10B981"
+              />
+            )}
+            <BalanceRow
+              label="Less: Operating Expenses"
+              value={`- ${cur} ${fmt(stats.totalExpenses)}`}
+              valueColor="#EF4444"
+            />
+            <BalanceRow
+              label="Net Profit"
+              value={`${cur} ${fmt(stats.netProfit)}`}
+              valueColor={stats.netProfit >= 0 ? '#10B981' : '#EF4444'}
+              borderBottom={false}
+            />
+          </View>
+
+          {/* 4 stat cards */}
           <View style={styles.grid2}>
             <StatCard
               label="Total Sales"
               value={`${cur} ${fmt(stats.totalSales)}`}
-              sub={`${stats.invoiceCount} invoice${stats.invoiceCount !== 1 ? 's' : ''}`}
+              sub={`${stats.invoiceCount} invoices`}
               iconName="trending-up-outline"
               iconBg="#ECFDF5"
               valueColor="#10B981"
             />
             <StatCard
-              label="Cost of Goods"
+              label="Total Purchases"
               value={`${cur} ${fmt(stats.totalCOGS)}`}
-              sub="COGS"
+              sub={`${stats.purchaseCount} bills`}
               iconName="cube-outline"
               iconBg="#FEF3C7"
               valueColor="#D97706"
@@ -370,7 +380,7 @@ export default function StatisticsScreen({ route, navigation }) {
             />
           </View>
 
-          {/* ── Cash flow card ── */}
+          {/* Cash flow */}
           <View style={styles.grid2}>
             <StatCard
               label="Money In"
@@ -390,20 +400,18 @@ export default function StatisticsScreen({ route, navigation }) {
             />
           </View>
 
-          {/* ── Expense breakdown ── */}
+          {/* Expense breakdown */}
           {stats.expenseBreakdown.length > 0 && (
             <>
               <SectionLabel title="Expense breakdown" />
-              <Card>
+              <View style={[styles.card, { marginBottom: 10 }]}>
                 <Text style={styles.cardTitle}>Where your money went</Text>
                 {stats.expenseBreakdown.map((item, idx) => {
                   const barWidth = maxExpense > 0
-                    ? (item.amount / maxExpense) * 100
-                    : 0;
+                    ? (item.amount / maxExpense) * 100 : 0;
                   const barColor = EXPENSE_COLORS[idx % EXPENSE_COLORS.length];
                   const pct = stats.totalExpenses > 0
-                    ? ((item.amount / stats.totalExpenses) * 100).toFixed(0)
-                    : 0;
+                    ? ((item.amount / stats.totalExpenses) * 100).toFixed(0) : 0;
                   return (
                     <View key={item.name} style={styles.barRow}>
                       <View style={styles.barLabelWrap}>
@@ -424,8 +432,6 @@ export default function StatisticsScreen({ route, navigation }) {
                     </View>
                   );
                 })}
-
-                {/* Legend dots */}
                 <View style={styles.legendRow}>
                   {stats.expenseBreakdown.slice(0, 5).map((item, idx) => (
                     <View key={item.name} style={styles.legendItem}>
@@ -439,13 +445,13 @@ export default function StatisticsScreen({ route, navigation }) {
                     </View>
                   ))}
                 </View>
-              </Card>
+              </View>
             </>
           )}
 
-          {/* ── Money position ── */}
+          {/* Money position */}
           <SectionLabel title="Money position" />
-          <Card>
+          <View style={[styles.card, { marginBottom: 10 }]}>
             <Text style={styles.cardTitle}>Cash & bank balances</Text>
             <BalanceRow
               label="Cash on Hand"
@@ -461,12 +467,13 @@ export default function StatisticsScreen({ route, navigation }) {
               label="Total liquid"
               value={`${cur} ${fmt(stats.totalBalance)}`}
               valueColor={stats.totalBalance >= 0 ? '#10B981' : '#EF4444'}
+              borderBottom={false}
             />
-          </Card>
+          </View>
 
-          {/* ── Receivables & Payables ── */}
+          {/* Outstanding */}
           <SectionLabel title="Outstanding balances" />
-          <Card style={{ marginBottom: 32 }}>
+          <View style={[styles.card, { marginBottom: 36 }]}>
             <Text style={styles.cardTitle}>What's owed</Text>
             <BalanceRow
               label="Customers owe you"
@@ -483,13 +490,11 @@ export default function StatisticsScreen({ route, navigation }) {
               value={`${cur} ${fmt(stats.totalReceivables - stats.totalPayables)}`}
               valueColor={
                 stats.totalReceivables >= stats.totalPayables
-                  ? '#10B981'
-                  : '#EF4444'
+                  ? '#10B981' : '#EF4444'
               }
               borderBottom={false}
             />
-          </Card>
-
+          </View>
         </ScrollView>
       )}
     </SafeAreaView>
@@ -498,258 +503,98 @@ export default function StatisticsScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 14,
     backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   headerTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
-
-  // Period bar
   periodBar: {
-    flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 6,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 10, gap: 6,
+    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   periodBtn: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: 20,
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    flex: 1, paddingVertical: 7, borderRadius: 20,
+    alignItems: 'center', backgroundColor: '#F3F4F6',
   },
   periodBtnActive: { backgroundColor: colors.primary },
-  periodBtnText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
+  periodBtnText: { fontSize: 11, fontWeight: '600', color: '#6B7280' },
   periodBtnTextActive: { color: '#fff' },
-
-  // Content
   content: { padding: 14, paddingBottom: 48 },
-
   sectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 8,
-    marginTop: 16,
-    marginLeft: 2,
+    fontSize: 11, fontWeight: '700', color: colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.6,
+    marginBottom: 8, marginTop: 16, marginLeft: 2,
   },
-
-  // Hero card
   heroCard: {
-    backgroundColor: colors.primary,
-    borderRadius: 18,
-    padding: 20,
-    marginBottom: 10,
+    backgroundColor: colors.primary, borderRadius: 18,
+    padding: 20, marginBottom: 10,
   },
-  heroLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.7)',
-    marginBottom: 4,
-  },
-  heroAmount: {
-    fontSize: 30,
-    fontWeight: '700',
-    color: '#fff',
-  },
+  heroLabel: { fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 4 },
+  heroAmount: { fontSize: 28, fontWeight: '700', color: '#fff' },
   heroPeriod: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.6)',
-    marginTop: 2,
-    marginBottom: 14,
+    fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 2, marginBottom: 14,
   },
   heroRow: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
+    flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 12, padding: 12, alignItems: 'center',
   },
   heroStat: { flex: 1, alignItems: 'center' },
-  heroStatDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-  },
-  heroStatLabel: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.65)',
-    marginBottom: 3,
-  },
-  heroStatVal: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#fff',
-  },
-
-  // 2-column grid
-  grid2: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 2,
-  },
+  heroStatDivider: { width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.2)' },
+  heroStatLabel: { fontSize: 10, color: 'rgba(255,255,255,0.65)', marginBottom: 3 },
+  heroStatVal: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  grid2: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 2 },
   statCard: {
-    width: '47.5%',
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    width: '47.5%', backgroundColor: '#fff', borderRadius: 14, padding: 14,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
   },
   statIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
+    width: 36, height: 36, borderRadius: 10,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 10,
   },
-  statLabel: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginBottom: 3,
-  },
-  statValue: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  statSub: {
-    fontSize: 11,
-    color: colors.textTertiary,
-    marginTop: 2,
-  },
-
-  // Card
+  statLabel: { fontSize: 11, color: colors.textSecondary, marginBottom: 3 },
+  statValue: { fontSize: 14, fontWeight: '700' },
+  statSub: { fontSize: 11, color: colors.textTertiary, marginTop: 2 },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    backgroundColor: '#fff', borderRadius: 14, padding: 14,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
   },
   cardTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    marginBottom: 12,
+    fontSize: 13, fontWeight: '700', color: colors.textPrimary, marginBottom: 12,
   },
-
-  // Expense bar chart
   barRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10,
   },
-  barLabelWrap: {
-    width: 90,
-    flexShrink: 0,
-  },
-  barName: {
-    fontSize: 12,
-    color: colors.textPrimary,
-    fontWeight: '500',
-  },
-  barPct: {
-    fontSize: 10,
-    color: colors.textTertiary,
-    marginTop: 1,
-  },
+  barLabelWrap: { width: 90, flexShrink: 0 },
+  barName: { fontSize: 12, color: colors.textPrimary, fontWeight: '500' },
+  barPct: { fontSize: 10, color: colors.textTertiary, marginTop: 1 },
   barTrack: {
-    flex: 1,
-    height: 8,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 4,
-    overflow: 'hidden',
+    flex: 1, height: 8, backgroundColor: '#F3F4F6',
+    borderRadius: 4, overflow: 'hidden',
   },
-  barFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
+  barFill: { height: '100%', borderRadius: 4 },
   barAmt: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    width: 68,
-    textAlign: 'right',
-    flexShrink: 0,
+    fontSize: 11, color: colors.textSecondary,
+    width: 68, textAlign: 'right', flexShrink: 0,
   },
   legendRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8,
+    marginTop: 10, paddingTop: 10,
+    borderTopWidth: 1, borderTopColor: colors.border,
   },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 2,
-  },
-  legendText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    maxWidth: 80,
-  },
-
-  // Balance rows
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 8, height: 8, borderRadius: 2 },
+  legendText: { fontSize: 11, color: colors.textSecondary, maxWidth: 80 },
   balanceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border,
   },
-  balanceLabel: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    flex: 1,
-  },
-  balanceValue: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-
-  // Empty state
+  balanceLabel: { fontSize: 13, color: colors.textSecondary, flex: 1 },
+  balanceValue: { fontSize: 14, fontWeight: '700' },
   emptyBox: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingHorizontal: 40,
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    gap: 10, paddingHorizontal: 40,
   },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  emptySub: {
-    fontSize: 13,
-    color: colors.textTertiary,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
+  emptyTitle: { fontSize: 17, fontWeight: '600', color: colors.textSecondary },
+  emptySub: { fontSize: 13, color: colors.textTertiary, textAlign: 'center', lineHeight: 20 },
 });

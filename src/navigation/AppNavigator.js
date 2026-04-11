@@ -4,6 +4,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 
+import BusinessListScreen from '../screens/BusinessListScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import MoneyScreen from '../screens/MoneyScreen';
 import SalesScreen from '../screens/SalesScreen';
@@ -38,6 +39,7 @@ import TransfersScreen from '../screens/money/TransfersScreen';
 import TransactionFormScreen from '../screens/money/TransactionFormScreen';
 
 import InventoryScreen from '../screens/more/InventoryScreen';
+import InventoryLedgerScreen from '../screens/more/InventoryLedgerScreen';
 import ItemFormScreen from '../screens/more/ItemFormScreen';
 import SettingsScreen from '../screens/more/SettingsScreen';
 import BackupRestoreScreen from '../screens/more/BackupRestoreScreen';
@@ -45,6 +47,7 @@ import AccountsManagerScreen from '../screens/more/AccountsManagerScreen';
 import InventoryWriteOffScreen from '../screens/more/InventoryWriteOffScreen';
 import JournalEntriesScreen from '../screens/more/JournalEntriesScreen';
 import StatisticsScreen from '../screens/more/StatisticsScreen';
+
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
@@ -130,6 +133,7 @@ export default function AppNavigator({ route }) {
       <Stack.Screen name="TransactionForm" component={TransactionFormScreen} />
 
       <Stack.Screen name="Inventory" component={InventoryScreen} />
+      <Stack.Screen name="InventoryLedger" component={InventoryLedgerScreen} />
       <Stack.Screen name="ItemForm" component={ItemFormScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen name="BackupRestore" component={BackupRestoreScreen} />
@@ -137,6 +141,7 @@ export default function AppNavigator({ route }) {
       <Stack.Screen name="InventoryWriteOff" component={InventoryWriteOffScreen} />
       <Stack.Screen name="JournalEntries" component={JournalEntriesScreen} />
       <Stack.Screen name="Statistics" component={StatisticsScreen} />
+      <Stack.Screen name="BusinessList" component={BusinessListScreen} />
     </Stack.Navigator>
   );
 }

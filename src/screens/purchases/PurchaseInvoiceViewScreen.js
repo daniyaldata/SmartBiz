@@ -37,59 +37,16 @@ export default function PurchaseInvoiceViewScreen({ route, navigation }) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centered}>
-          <Text style={{ color: colors.textSecondary }}>Invoice not found</Text>
+          <Text style={{ color: colors.textSecondary }}>Invoice not found.</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  const cur = biz.meta?.currency || 'PKR';
-  const status = getInvoiceStatus(invoice);
-  const st = STATUS[status];
+  const cur     = biz.meta?.currency || 'PKR';
+  const status  = getInvoiceStatus(invoice);
+  const st      = STATUS[status];
   const balance = invoice.total - (invoice.amountPaid || 0);
-
-  const handleMarkPaid = () => {
-    Alert.alert('Mark as Paid', 'Mark this bill as fully paid?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Mark Paid',
-        onPress: async () => {
-          const updated = {
-            ...biz,
-            purchaseInvoices: biz.purchaseInvoices.map(i =>
-              i.id === invoiceId ? { ...i, amountPaid: i.total } : i
-            ),
-          };
-          await saveBusiness(updated);
-          loadBusiness(businessId).then(setBiz);
-        },
-      },
-    ]);
-  };
-
-  const handleRecordPayment = () => {
-    Alert.prompt(
-      'Record Payment',
-      `Outstanding: ${cur} ${balance.toLocaleString()}\nEnter amount paid:`,
-      async (value) => {
-        const amount = parseFloat(value);
-        if (!amount || amount <= 0) return;
-        const newPaid = Math.min(
-          (invoice.amountPaid || 0) + amount,
-          invoice.total
-        );
-        const updated = {
-          ...biz,
-          purchaseInvoices: biz.purchaseInvoices.map(i =>
-            i.id === invoiceId ? { ...i, amountPaid: newPaid } : i
-          ),
-        };
-        await saveBusiness(updated);
-        loadBusiness(businessId).then(setBiz);
-      },
-      'plain-text', '', 'numeric'
-    );
-  };
 
   const handleClone = async () => {
     const cloned = {
@@ -110,8 +67,7 @@ export default function PurchaseInvoiceViewScreen({ route, navigation }) {
     await saveBusiness(updated);
     Alert.alert('Cloned!', `Bill BILL-${cloned.number} created.`);
     navigation.replace('PurchaseInvoiceView', {
-      businessId,
-      invoiceId: cloned.id,
+      businessId, invoiceId: cloned.id,
     });
   };
 
@@ -121,6 +77,19 @@ export default function PurchaseInvoiceViewScreen({ route, navigation }) {
     } catch (e) {
       Alert.alert('Error', 'Could not generate PDF: ' + e.message);
     }
+  };
+
+  // Opens TransactionForm pre-filled with this invoice's supplier + invoice
+  const handleRecordPayment = () => {
+    navigation.navigate('TransactionForm', {
+      businessId,
+      defaultType: 'payment',
+      prefillSupplierId: invoice.supplierId,
+      prefillSupplierName: invoice.supplierName,
+      prefillInvoiceId: invoice.id,
+      prefillInvoiceNumber: invoice.number,
+      prefillAmount: balance.toString(),
+    });
   };
 
   return (
@@ -134,9 +103,7 @@ export default function PurchaseInvoiceViewScreen({ route, navigation }) {
         </Text>
         <TouchableOpacity
           onPress={() =>
-            navigation.navigate('PurchaseInvoiceForm', {
-              businessId, invoiceId,
-            })
+            navigation.navigate('PurchaseInvoiceForm', { businessId, invoiceId })
           }
         >
           <Ionicons name="create-outline" size={22} color={colors.primary} />
@@ -145,10 +112,9 @@ export default function PurchaseInvoiceViewScreen({ route, navigation }) {
 
       <ScrollView contentContainerStyle={styles.content}>
 
+        {/* Status */}
         <View style={[styles.statusBanner, { backgroundColor: st.bg }]}>
-          <Text style={[styles.statusText, { color: st.text }]}>
-            {st.label}
-          </Text>
+          <Text style={[styles.statusText, { color: st.text }]}>{st.label}</Text>
           {balance > 0 && (
             <Text style={[styles.statusBalance, { color: st.text }]}>
               Balance Due: {cur} {balance.toLocaleString()}
@@ -156,6 +122,7 @@ export default function PurchaseInvoiceViewScreen({ route, navigation }) {
           )}
         </View>
 
+        {/* Details */}
         <View style={styles.card}>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Supplier</Text>
@@ -177,12 +144,13 @@ export default function PurchaseInvoiceViewScreen({ route, navigation }) {
           ) : null}
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Amount paid</Text>
-            <Text style={[styles.detailValue, { color: colors.success }]}>
+            <Text style={[styles.detailValue, { color: '#10B981' }]}>
               {cur} {(invoice.amountPaid || 0).toLocaleString()}
             </Text>
           </View>
         </View>
 
+        {/* Line items */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Items</Text>
           <View style={styles.lineHeader}>
@@ -203,8 +171,7 @@ export default function PurchaseInvoiceViewScreen({ route, navigation }) {
                 { textAlign: 'right', fontWeight: '600' },
               ]}>
                 {(
-                  (parseFloat(line.qty) || 0) *
-                  (parseFloat(line.rate) || 0)
+                  (parseFloat(line.qty) || 0) * (parseFloat(line.rate) || 0)
                 ).toLocaleString()}
               </Text>
             </View>
@@ -224,27 +191,16 @@ export default function PurchaseInvoiceViewScreen({ route, navigation }) {
           </View>
         ) : null}
 
+        {/* Actions */}
         <TouchableOpacity style={styles.pdfBtn} onPress={handleSharePdf}>
           <Ionicons name="share-outline" size={20} color="#fff" />
           <Text style={styles.pdfBtnText}>Share Bill PDF</Text>
         </TouchableOpacity>
 
         {status !== 'paid' && (
-          <TouchableOpacity style={styles.greenBtn} onPress={handleMarkPaid}>
-            <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
-            <Text style={styles.greenBtnText}>Mark as Paid</Text>
-          </TouchableOpacity>
-        )}
-
-        {status !== 'paid' && (
-          <TouchableOpacity
-            style={styles.outlineBtn}
-            onPress={handleRecordPayment}
-          >
-            <Ionicons name="cash-outline" size={20} color="#EF4444" />
-            <Text style={[styles.outlineBtnText, { color: '#EF4444' }]}>
-              Record Partial Payment
-            </Text>
+          <TouchableOpacity style={styles.paymentBtn} onPress={handleRecordPayment}>
+            <Ionicons name="cash-outline" size={20} color="#fff" />
+            <Text style={styles.paymentBtnText}>Record New Payment</Text>
           </TouchableOpacity>
         )}
 
@@ -262,110 +218,62 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   headerTitle: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
-  statusBanner: {
-    borderRadius: 14,
-    padding: 16,
-    alignItems: 'center',
-    gap: 4,
-  },
+  statusBanner: { borderRadius: 14, padding: 16, alignItems: 'center', gap: 4 },
   statusText: { fontSize: 16, fontWeight: '700' },
   statusBalance: { fontSize: 14, fontWeight: '500' },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    backgroundColor: '#fff', borderRadius: 14, padding: 16,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
   },
   cardTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 12,
+    fontSize: 12, fontWeight: '700', color: colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12,
   },
   detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 9,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   detailLabel: { fontSize: 14, color: colors.textSecondary },
   detailValue: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
   lineHeader: {
-    flexDirection: 'row',
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    marginBottom: 4,
+    flexDirection: 'row', paddingBottom: 8,
+    borderBottomWidth: 1, borderBottomColor: colors.border, marginBottom: 4,
   },
   lineCol: {
-    flex: 1,
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
+    flex: 1, fontSize: 11, fontWeight: '700',
+    color: colors.textSecondary, textTransform: 'uppercase',
   },
   lineRow: {
-    flexDirection: 'row',
-    paddingVertical: 9,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', paddingVertical: 9,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   lineCell: { flex: 1, fontSize: 14, color: colors.textPrimary },
   totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 12,
-    marginTop: 4,
+    flexDirection: 'row', justifyContent: 'space-between', paddingTop: 12,
   },
   totalLabel: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
   totalValue: { fontSize: 18, fontWeight: '700' },
   notesText: { fontSize: 14, color: colors.textSecondary, lineHeight: 22 },
   pdfBtn: {
-    backgroundColor: '#EF4444',
-    borderRadius: 13,
-    paddingVertical: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    backgroundColor: '#EF4444', borderRadius: 13, paddingVertical: 15,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
   pdfBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  greenBtn: {
-    backgroundColor: '#16A34A',
-    borderRadius: 13,
-    paddingVertical: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+  paymentBtn: {
+    backgroundColor: '#10B981', borderRadius: 13, paddingVertical: 15,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
-  greenBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  paymentBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   outlineBtn: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: 13,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    borderWidth: 1.5, borderColor: colors.border, borderRadius: 13,
+    paddingVertical: 14, flexDirection: 'row',
+    alignItems: 'center', justifyContent: 'center', gap: 8,
   },
   outlineBtnText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
 });

@@ -36,7 +36,11 @@ const PICKER_TITLES = {
 };
 
 export default function TransactionFormScreen({ route, navigation }) {
-  const { businessId, transactionId, defaultType } = route?.params || {};
+  const {
+  businessId, transactionId, defaultType,
+  prefillCustomerId, prefillSupplierId,
+  prefillInvoiceId, prefillAmount,
+} = route?.params || {};
   const [biz, setBiz] = useState(null);
   const [loading, setLoading] = useState(false);
   const [txnType, setTxnType] = useState(defaultType || 'receipt');
@@ -68,12 +72,42 @@ export default function TransactionFormScreen({ route, navigation }) {
   useEffect(() => {
     loadBusiness(businessId).then(b => {
       setBiz(b);
-      if (b?.bankAccounts?.length > 0) {
-        setDepositAccount(b.bankAccounts[0]);
-        setPayFromAccount(b.bankAccounts[0]);
-        setFromAccount(b.bankAccounts[0]);
-        if (b.bankAccounts.length > 1) setToAccount(b.bankAccounts[1]);
-      }
+     if (b?.bankAccounts?.length > 0) {
+  setDepositAccount(b.bankAccounts[0]);
+  setPayFromAccount(b.bankAccounts[0]);
+  setFromAccount(b.bankAccounts[0]);
+  if (b.bankAccounts.length > 1) setToAccount(b.bankAccounts[1]);
+}
+
+// Prefill from invoice view — Record New Receipt
+if (prefillCustomerId) {
+  const cust = b.customers?.find(c => c.id === prefillCustomerId);
+  if (cust) {
+    setReceiptParty({ ...cust, _type: 'customer' });
+  }
+}
+if (prefillInvoiceId && defaultType === 'receipt') {
+  const inv = b.salesInvoices?.find(i => i.id === prefillInvoiceId);
+  if (inv) setLinkedSalesInvoice(inv);
+}
+if (prefillAmount && defaultType === 'receipt') {
+  setAmount(prefillAmount);
+}
+
+// Prefill from invoice view — Record New Payment
+if (prefillSupplierId) {
+  const sup = b.suppliers?.find(s => s.id === prefillSupplierId);
+  if (sup) {
+    setPaymentParty({ ...sup, _type: 'supplier' });
+  }
+}
+if (prefillInvoiceId && defaultType === 'payment') {
+  const inv = b.purchaseInvoices?.find(i => i.id === prefillInvoiceId);
+  if (inv) setLinkedPurchaseInvoice(inv);
+}
+if (prefillAmount && defaultType === 'payment') {
+  setAmount(prefillAmount);
+}
       if (transactionId) {
         const txn = (b?.transactions || []).find(t => t.id === transactionId);
         if (txn) {
