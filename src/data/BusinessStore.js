@@ -777,3 +777,136 @@ const applyFifoToSupplierInvoices = (invoices, supplierId, amount) => {
     return { ...inv, amountPaid: (inv.amountPaid || 0) + apply };
   });
 };
+
+// ─── INVENTORY STOCK HELPERS ──────────────────────────────────────────────────
+
+// Called when a purchase invoice is saved — increases stock for matched items
+export const applyPurchaseInvoiceToInventory = (biz, invoice, oldInvoice = null) => {
+  let items = [...(biz.items || [])];
+
+  // Reverse old invoice stock if editing
+  if (oldInvoice) {
+    (oldInvoice.lines || []).forEach(line => {
+      const qty = parseFloat(line.qty) || 0;
+      if (qty <= 0) return;
+      const idx = items.findIndex(
+        i => i.name?.toLowerCase() === line.description?.toLowerCase() ||
+             i.id === line.itemId
+      );
+      if (idx >= 0) {
+        items[idx] = {
+          ...items[idx],
+          stock: Math.max(0, (items[idx].stock || 0) - qty),
+        };
+      }
+    });
+  }
+
+  // Apply new invoice stock
+  (invoice.lines || []).forEach(line => {
+    const qty  = parseFloat(line.qty) || 0;
+    const rate = parseFloat(line.rate) || 0;
+    if (qty <= 0) return;
+    const idx = items.findIndex(
+      i => i.name?.toLowerCase() === line.description?.toLowerCase() ||
+           i.id === line.itemId
+    );
+    if (idx >= 0) {
+      // Update stock and cost price with weighted average
+      const currentStock = items[idx].stock || 0;
+      const currentCost  = items[idx].costPrice || 0;
+      const newStock     = currentStock + qty;
+      const newAvgCost   = newStock > 0
+        ? ((currentStock * currentCost) + (qty * rate)) / newStock
+        : rate;
+      items[idx] = {
+        ...items[idx],
+        stock:     newStock,
+        costPrice: Math.round(newAvgCost * 100) / 100,
+      };
+    }
+  });
+
+  return items;
+};
+
+// Called when a purchase invoice is deleted — reverses stock
+export const reversePurchaseInvoiceFromInventory = (biz, invoice) => {
+  let items = [...(biz.items || [])];
+  (invoice.lines || []).forEach(line => {
+    const qty = parseFloat(line.qty) || 0;
+    if (qty <= 0) return;
+    const idx = items.findIndex(
+      i => i.name?.toLowerCase() === line.description?.toLowerCase() ||
+           i.id === line.itemId
+    );
+    if (idx >= 0) {
+      items[idx] = {
+        ...items[idx],
+        stock: Math.max(0, (items[idx].stock || 0) - qty),
+      };
+    }
+  });
+  return items;
+};
+
+// Called when a sales invoice is saved — decreases stock for matched items
+export const applySalesInvoiceToInventory = (biz, invoice, oldInvoice = null) => {
+  let items = [...(biz.items || [])];
+
+  // Reverse old invoice stock if editing
+  if (oldInvoice) {
+    (oldInvoice.lines || []).forEach(line => {
+      const qty = parseFloat(line.qty) || 0;
+      if (qty <= 0) return;
+      const idx = items.findIndex(
+        i => i.name?.toLowerCase() === line.description?.toLowerCase() ||
+             i.id === line.itemId
+      );
+      if (idx >= 0) {
+        items[idx] = {
+          ...items[idx],
+          stock: (items[idx].stock || 0) + qty,
+        };
+      }
+    });
+  }
+
+  // Apply new invoice stock reduction
+  (invoice.lines || []).forEach(line => {
+    const qty = parseFloat(line.qty) || 0;
+    if (qty <= 0) return;
+    const idx = items.findIndex(
+      i => i.name?.toLowerCase() === line.description?.toLowerCase() ||
+           i.id === line.itemId
+    );
+    if (idx >= 0) {
+      items[idx] = {
+        ...items[idx],
+        stock: Math.max(0, (items[idx].stock || 0) - qty),
+      };
+    }
+  });
+
+  return items;
+};
+
+// Called when a sales invoice is deleted — restores stock
+export const reverseSalesInvoiceFromInventory = (biz, invoice) => {
+  let items = [...(biz.items || [])];
+  (invoice.lines || []).forEach(line => {
+    const qty = parseFloat(line.qty) || 0;
+    if (qty <= 0) return;
+    const idx = items.findIndex(
+      i => i.name?.toLowerCase() === line.description?.toLowerCase() ||
+           i.id === line.itemId
+    );
+    if (idx >= 0) {
+      items[idx] = {
+        ...items[idx],
+        stock: (items[idx].stock || 0) + qty,
+      };
+    }
+  });
+  return items;
+};

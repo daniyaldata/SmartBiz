@@ -5,7 +5,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { loadBusiness, saveBusiness, generateId } from '../../data/BusinessStore';
+import {
+  loadBusiness, saveBusiness, generateId,
+  applySalesInvoiceToInventory,
+  reverseSalesInvoiceFromInventory,
+} from '../../data/BusinessStore';
 import ModalSheet from '../../components/ModalSheet';
 import DateField from '../../components/DateField';
 import { colors } from '../../theme/colors';
@@ -92,13 +96,17 @@ export default function SalesInvoiceFormScreen({ route, navigation }) {
       };
       const updated = { ...biz };
       if (invoiceId) {
+        const oldInvoice = biz.salesInvoices?.find(i => i.id === invoiceId);
         updated.salesInvoices = biz.salesInvoices.map(i =>
-          i.id === invoiceId ? invoice : i
-        );
+           i.id === invoiceId ? invoice : i
+       );
+        updated.items = applySalesInvoiceToInventory(updated, invoice, oldInvoice);
       } else {
         updated.salesInvoices = [...(biz.salesInvoices || []), invoice];
+        updated.items = applySalesInvoiceToInventory(updated, invoice);
       }
       await saveBusiness(updated);
+
       navigation.goBack();
     } catch (e) {
       Alert.alert('Error', 'Could not save invoice.');
@@ -113,11 +121,16 @@ export default function SalesInvoiceFormScreen({ route, navigation }) {
       {
         text: 'Delete', style: 'destructive',
         onPress: async () => {
+          const invoiceToDelete = biz.salesInvoices?.find(i => i.id === invoiceId);
           const updated = {
-            ...biz,
-            salesInvoices: biz.salesInvoices.filter(i => i.id !== invoiceId),
+             ...biz,
+             salesInvoices: biz.salesInvoices.filter(i => i.id !== invoiceId),
+             items: invoiceToDelete
+               ? reverseSalesInvoiceFromInventory(biz, invoiceToDelete)
+               : biz.items,
           };
           await saveBusiness(updated);
+          
           navigation.goBack();
         },
       },

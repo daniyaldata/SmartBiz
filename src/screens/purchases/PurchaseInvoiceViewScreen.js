@@ -8,7 +8,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   loadBusiness, saveBusiness,
-  getInvoiceStatus, generateId,
+  getInvoiceStatus, generateId, applyPurchaseInvoiceToInventory
 } from '../../data/BusinessStore';
 import { generatePurchasePdf } from '../../data/PdfGenerator';
 import { colors } from '../../theme/colors';
@@ -61,10 +61,12 @@ export default function PurchaseInvoiceViewScreen({ route, navigation }) {
       createdAt: new Date().toISOString(),
     };
     const updated = {
-      ...biz,
-      purchaseInvoices: [...biz.purchaseInvoices, cloned],
-    };
-    await saveBusiness(updated);
+  ...biz,
+  purchaseInvoices: [...biz.purchaseInvoices, cloned],
+  items: applyPurchaseInvoiceToInventory({ ...biz }, cloned),
+};
+await saveBusiness(updated);
+loadBusiness(businessId).then(setBiz);
     Alert.alert('Cloned!', `Bill BILL-${cloned.number} created.`);
     navigation.replace('PurchaseInvoiceView', {
       businessId, invoiceId: cloned.id,

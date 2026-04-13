@@ -5,7 +5,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { loadBusiness, saveBusiness, generateId } from '../../data/BusinessStore';
+import {
+  loadBusiness, saveBusiness, generateId,
+  applyPurchaseInvoiceToInventory,
+  reversePurchaseInvoiceFromInventory,
+} from '../../data/BusinessStore';
 import ModalSheet from '../../components/ModalSheet';
 import DateField from '../../components/DateField';
 import { colors } from '../../theme/colors';
@@ -90,15 +94,20 @@ export default function PurchaseInvoiceFormScreen({ route, navigation }) {
         notes,
         createdAt: existing?.createdAt || new Date().toISOString(),
       };
+
       const updated = { ...biz };
       if (invoiceId) {
+        const oldInvoice = biz.purchaseInvoices?.find(i => i.id === invoiceId);
         updated.purchaseInvoices = biz.purchaseInvoices.map(i =>
-          i.id === invoiceId ? invoice : i
+    i.id === invoiceId ? invoice : i
         );
+        updated.items = applyPurchaseInvoiceToInventory(updated, invoice, oldInvoice);
       } else {
         updated.purchaseInvoices = [...(biz.purchaseInvoices || []), invoice];
+        updated.items = applyPurchaseInvoiceToInventory(updated, invoice);
       }
       await saveBusiness(updated);
+
       navigation.goBack();
     } catch (e) {
       Alert.alert('Error', 'Could not save invoice.');
@@ -113,11 +122,16 @@ export default function PurchaseInvoiceFormScreen({ route, navigation }) {
       {
         text: 'Delete', style: 'destructive',
         onPress: async () => {
+          const invoiceToDelete = biz.purchaseInvoices?.find(i => i.id === invoiceId);
           const updated = {
             ...biz,
             purchaseInvoices: biz.purchaseInvoices.filter(i => i.id !== invoiceId),
+            items: invoiceToDelete
+              ? reversePurchaseInvoiceFromInventory(biz, invoiceToDelete)
+              : biz.items,
           };
           await saveBusiness(updated);
+          
           navigation.goBack();
         },
       },
