@@ -60,10 +60,14 @@ export default function SalesInvoiceViewScreen({ route, navigation }) {
       dueDate: '',
       createdAt: new Date().toISOString(),
     };
-    const updated = {
+    
+    const bizWithClone = {
   ...biz,
   salesInvoices: [...biz.salesInvoices, cloned],
-  items: applySalesInvoiceToInventory({ ...biz, salesInvoices: [...biz.salesInvoices, cloned] }, cloned),
+};
+const updated = {
+  ...bizWithClone,
+  items: applySalesInvoiceToInventory(bizWithClone, cloned),
 };
 await saveBusiness(updated);
 loadBusiness(businessId).then(setBiz);

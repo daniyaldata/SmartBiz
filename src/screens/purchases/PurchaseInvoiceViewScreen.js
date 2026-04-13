@@ -60,10 +60,13 @@ export default function PurchaseInvoiceViewScreen({ route, navigation }) {
       dueDate: '',
       createdAt: new Date().toISOString(),
     };
-    const updated = {
+    const bizWithClone = {
   ...biz,
   purchaseInvoices: [...biz.purchaseInvoices, cloned],
-  items: applyPurchaseInvoiceToInventory({ ...biz }, cloned),
+};
+const updated = {
+  ...bizWithClone,
+  items: applyPurchaseInvoiceToInventory(bizWithClone, cloned),
 };
 await saveBusiness(updated);
 loadBusiness(businessId).then(setBiz);

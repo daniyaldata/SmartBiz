@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { loadBusiness, getInvoiceStatus } from '../../data/BusinessStore';
 import { colors } from '../../theme/colors';
 
-const STATUS = {
+const STATUS_STYLE = {
   paid:    { bg: '#DCFCE7', text: '#16A34A', label: 'Paid' },
   partial: { bg: '#FEF3C7', text: '#D97706', label: 'Partial' },
   due:     { bg: '#FEE2E2', text: '#DC2626', label: 'Due' },
@@ -30,6 +30,10 @@ export default function SalesInvoicesScreen({ route, navigation }) {
 
   const cur = biz?.meta?.currency || 'PKR';
 
+  const totalOutstanding = invoices
+    .filter(i => getInvoiceStatus(i) !== 'paid')
+    .reduce((s, i) => s + (i.total - (i.amountPaid || 0)), 0);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -39,6 +43,17 @@ export default function SalesInvoicesScreen({ route, navigation }) {
         <Text style={styles.title}>Sales Invoices</Text>
         <View style={{ width: 22 }} />
       </View>
+
+      {totalOutstanding > 0 && (
+        <View style={styles.summaryBar}>
+          <Text style={styles.summaryText}>
+            Outstanding receivable:
+          </Text>
+          <Text style={styles.summaryValue}>
+            {cur} {totalOutstanding.toLocaleString()}
+          </Text>
+        </View>
+      )}
 
       <FlatList
         data={invoices}
@@ -52,45 +67,50 @@ export default function SalesInvoicesScreen({ route, navigation }) {
               color={colors.textTertiary}
             />
             <Text style={styles.emptyTitle}>No invoices yet</Text>
-            <Text style={styles.emptySub}>Tap + to create your first invoice</Text>
+            <Text style={styles.emptySub}>
+              Tap + to create your first sales invoice
+            </Text>
           </View>
         }
         renderItem={({ item }) => {
           const status = getInvoiceStatus(item);
-          const st = STATUS[status];
+          const st     = STATUS_STYLE[status];
           const balance = item.total - (item.amountPaid || 0);
           return (
             <TouchableOpacity
-              style={styles.row}
+              style={styles.card}
               onPress={() =>
                 navigation.navigate('SalesInvoiceView', {
-                  businessId,
-                  invoiceId: item.id,
+                  businessId, invoiceId: item.id,
                 })
               }
             >
-              <View style={styles.rowLeft}>
-                <Text style={styles.invNum}>
-                  INV-{item.number || item.id.slice(-4)}
-                </Text>
-                <Text style={styles.customerName}>{item.customerName}</Text>
-                <Text style={styles.dateText}>
-                  {new Date(item.date).toLocaleDateString()}
-                </Text>
-              </View>
-              <View style={styles.rowRight}>
-                <Text style={styles.amount}>
-                  {cur} {(item.total || 0).toLocaleString()}
-                </Text>
-                {balance > 0 && (
-                  <Text style={styles.balance}>
-                    Due: {cur} {balance.toLocaleString()}
+              <View style={styles.cardRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardNum}>
+                    INV-{item.number || item.id.slice(-4)}
                   </Text>
-                )}
-                <View style={[styles.badge, { backgroundColor: st.bg }]}>
-                  <Text style={[styles.badgeText, { color: st.text }]}>
-                    {st.label}
+                  <Text style={styles.cardCustomer}>
+                    {item.customerName || '—'}
                   </Text>
+                  <Text style={styles.cardDate}>
+                    {new Date(item.date).toLocaleDateString()}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                  <Text style={styles.cardTotal}>
+                    {cur} {(item.total || 0).toLocaleString()}
+                  </Text>
+                  <View style={[styles.badge, { backgroundColor: st.bg }]}>
+                    <Text style={[styles.badgeText, { color: st.text }]}>
+                      {st.label}
+                    </Text>
+                  </View>
+                  {status === 'partial' && (
+                    <Text style={styles.balanceText}>
+                      Due: {cur} {balance.toLocaleString()}
+                    </Text>
+                  )}
                 </View>
               </View>
             </TouchableOpacity>
@@ -113,60 +133,41 @@ export default function SalesInvoicesScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
+  summaryBar: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: '#FEF3C7', borderBottomWidth: 1, borderBottomColor: '#FDE68A',
+  },
+  summaryText:  { fontSize: 13, color: '#92400E' },
+  summaryValue: { fontSize: 14, fontWeight: '700', color: '#92400E' },
   list: { padding: 12, gap: 8, paddingBottom: 100 },
-  row: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+  card: {
+    backgroundColor: '#fff', borderRadius: 14, padding: 14,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
   },
-  rowLeft: { flex: 1, gap: 3 },
-  invNum: { fontSize: 13, fontWeight: '700', color: colors.primary },
-  customerName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  dateText: { fontSize: 12, color: colors.textSecondary },
-  rowRight: { alignItems: 'flex-end', gap: 4 },
-  amount: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
-  balance: { fontSize: 12, color: colors.textSecondary },
+  cardRow:     { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  cardNum:     { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
+  cardCustomer:{ fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  cardDate:    { fontSize: 12, color: colors.textTertiary, marginTop: 2 },
+  cardTotal:   { fontSize: 16, fontWeight: '700', color: colors.primary },
   badge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20 },
-  badgeText: { fontSize: 12, fontWeight: '600' },
+  badgeText:   { fontSize: 11, fontWeight: '700' },
+  balanceText: { fontSize: 11, color: '#D97706' },
   emptyBox: {
-    alignItems: 'center',
-    paddingTop: 80,
-    gap: 10,
-    paddingHorizontal: 40,
+    alignItems: 'center', paddingTop: 80, gap: 10, paddingHorizontal: 40,
   },
-  emptyTitle: { fontSize: 17, fontWeight: '600', color: colors.textSecondary },
-  emptySub: { fontSize: 13, color: colors.textTertiary, textAlign: 'center' },
+  emptyTitle:  { fontSize: 17, fontWeight: '600', color: colors.textSecondary },
+  emptySub:    { fontSize: 13, color: colors.textTertiary, textAlign: 'center' },
   fab: {
-    position: 'absolute',
-    bottom: 28,
-    right: 20,
-    backgroundColor: colors.primary,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: colors.primary,
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
+    position: 'absolute', bottom: 28, right: 20,
+    backgroundColor: colors.primary, width: 58, height: 58, borderRadius: 29,
+    justifyContent: 'center', alignItems: 'center',
+    shadowColor: colors.primary, shadowOpacity: 0.4, shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 }, elevation: 8,
   },
 });

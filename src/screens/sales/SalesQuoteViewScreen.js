@@ -6,7 +6,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { loadBusiness, saveBusiness, generateId } from '../../data/BusinessStore';
+import {
+  loadBusiness, saveBusiness, generateId,
+  applySalesInvoiceToInventory,
+} from '../../data/BusinessStore';
 import { generateQuotePdf } from '../../data/PdfGenerator';
 import { colors } from '../../theme/colors';
 
@@ -68,16 +71,21 @@ export default function SalesQuoteViewScreen({ route, navigation }) {
               notes: quote.notes,
               createdAt: new Date().toISOString(),
             };
-            const updated = {
-              ...biz,
-              salesInvoices: [...(biz.salesInvoices || []), invoice],
-              salesQuotes: biz.salesQuotes.map(q =>
+            const bizWithInvoice = {
+               ...biz,
+               salesInvoices: [...(biz.salesInvoices || []), invoice],
+               salesQuotes: biz.salesQuotes.map(q =>
                 q.id === quoteId
                   ? { ...q, convertedToInvoiceId: invoice.id }
                   : q
-              ),
+               ),
+            };
+            const updated = {
+               ...bizWithInvoice,
+               items: applySalesInvoiceToInventory(bizWithInvoice, invoice),
             };
             await saveBusiness(updated);
+            
             Alert.alert(
               'Converted!',
               `Sales invoice INV-${invoice.number} has been created.`,

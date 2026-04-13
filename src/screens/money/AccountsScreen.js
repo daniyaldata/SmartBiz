@@ -27,10 +27,10 @@ export default function AccountsScreen({ route, navigation }) {
   const [saving, setSaving] = useState(false);
 
   useFocusEffect(
-    useCallback(() => {
-      loadBusiness(businessId).then(setBiz);
-    }, [businessId])
-  );
+  useCallback(() => {
+    loadBusiness(businessId).then(setBiz);
+  }, [businessId])
+);
 
   const accounts = biz?.bankAccounts || [];
   const cur = biz?.meta?.currency || 'PKR';

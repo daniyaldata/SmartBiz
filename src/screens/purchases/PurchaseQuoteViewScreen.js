@@ -6,7 +6,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { loadBusiness, saveBusiness, generateId } from '../../data/BusinessStore';
+import {
+  loadBusiness, saveBusiness, generateId,
+  applyPurchaseInvoiceToInventory,
+} from '../../data/BusinessStore';
 import { generateQuotePdf } from '../../data/PdfGenerator';
 import { colors } from '../../theme/colors';
 
@@ -68,16 +71,22 @@ export default function PurchaseQuoteViewScreen({ route, navigation }) {
               notes: quote.notes,
               createdAt: new Date().toISOString(),
             };
-            const updated = {
+
+            const bizWithInvoice = {
               ...biz,
               purchaseInvoices: [...(biz.purchaseInvoices || []), invoice],
               purchaseQuotes: biz.purchaseQuotes.map(q =>
-                q.id === quoteId
-                  ? { ...q, convertedToInvoiceId: invoice.id }
-                  : q
-              ),
-            };
+                  q.id === quoteId
+                    ? { ...q, convertedToInvoiceId: invoice.id }
+                    : q
+             ),
+           };
+            const updated = {
+              ...bizWithInvoice,
+             items: applyPurchaseInvoiceToInventory(bizWithInvoice, invoice),
+           };
             await saveBusiness(updated);
+            
             Alert.alert(
               'Converted!',
               `Purchase invoice BILL-${invoice.number} has been created.`,
