@@ -18,7 +18,13 @@ export default function BusinessListScreen({ navigation }) {
   );
 
   const openBusiness = (biz) => {
-    navigation.navigate('Main', { businessId: biz.id });
+    navigation.reset({
+      index: 0,
+      routes: [{
+        name: 'Main',
+        params: { businessId: biz.id },
+      }],
+    });
   };
 
   const handleImport = async () => {
