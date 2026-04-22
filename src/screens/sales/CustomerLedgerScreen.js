@@ -23,22 +23,33 @@ export default function CustomerLedgerScreen({ route, navigation }) {
   const customer = biz.customers?.find(c => c.id === customerId);
   const cur = biz.meta?.currency || 'PKR';
 
-  // Build all ledger entries for this customer
+  // Build all ledger entries
   const rawTxns = [
 
-    // Sales invoices — debit the customer (they owe us)
+    // Opening balance — customer owed this before SmartBiz setup
+    ...((customer?.openingBalance || 0) > 0 ? [{
+      id: 'ob',
+      date: customer.createdAt || biz.meta?.createdAt || new Date().toISOString(),
+      description: 'Opening Balance',
+      type: 'opening',
+      debit:  customer.openingBalance,
+      credit: 0,
+      _isOpening: true,
+    }] : []),
+
+    // Sales invoices
     ...(biz.salesInvoices || [])
       .filter(i => i.customerId === customerId)
       .map(i => ({
-        id: i.id,
-        date: i.date,
+        id:          i.id,
+        date:        i.date,
         description: `Invoice INV-${i.number || i.id.slice(-4)}`,
-        type: 'invoice',
-        debit: i.total || 0,
-        credit: 0,
+        type:        'invoice',
+        debit:       i.total || 0,
+        credit:      0,
       })),
 
-    // Receipts — credit the customer (they paid us)
+    // Receipts
     ...(biz.transactions || [])
       .filter(t =>
         t.transactionType === 'receipt' &&
@@ -46,16 +57,16 @@ export default function CustomerLedgerScreen({ route, navigation }) {
         t.partyType === 'customer'
       )
       .map(t => ({
-        id: t.id,
-        date: t.date,
+        id:          t.id,
+        date:        t.date,
         description: `Receipt${t.reference ? ' — Ref: ' + t.reference : ''}`,
-        type: 'receipt',
-        debit: 0,
-        credit: t.amount || 0,
-        ref: t.reference || null,
+        type:        'receipt',
+        debit:       0,
+        credit:      t.amount || 0,
+        ref:         t.reference || null,
       })),
 
-    // Journal entries affecting this customer
+    // Journal entries
     ...(biz.journalEntries || []).flatMap(je =>
       (je.lines || [])
         .filter(line =>
@@ -64,20 +75,22 @@ export default function CustomerLedgerScreen({ route, navigation }) {
             line.linkedCustomerId === customerId)
         )
         .map(line => ({
-          id: `${je.id}_${line.lineId}`,
-          date: je.date,
+          id:          `${je.id}_${line.lineId}`,
+          date:        je.date,
           description: `Journal — ${je.description}`,
-          type: 'journal',
-          // Debit on customer = more they owe
-          // Credit on customer = reduces what they owe
-          debit: line.debit || 0,
-          credit: line.credit || 0,
+          type:        'journal',
+          debit:       line.debit  || 0,
+          credit:      line.credit || 0,
         }))
     ),
 
-  ].sort((a, b) => new Date(a.date) - new Date(b.date));
+  ].sort((a, b) => {
+    if (a._isOpening) return -1;
+    if (b._isOpening) return 1;
+    return new Date(a.date) - new Date(b.date);
+  });
 
-  // Calculate running balance (positive = customer owes us)
+  // Running balance
   let running = 0;
   const txns = rawTxns.map(t => {
     running += t.debit - t.credit;
@@ -89,6 +102,7 @@ export default function CustomerLedgerScreen({ route, navigation }) {
   const balance     = totalDebit - totalCredit;
 
   const getTypeIcon = (type) => {
+    if (type === 'opening') return 'flag-outline';
     if (type === 'invoice') return 'document-text-outline';
     if (type === 'receipt') return 'arrow-down-circle-outline';
     if (type === 'journal') return 'book-outline';
@@ -96,6 +110,7 @@ export default function CustomerLedgerScreen({ route, navigation }) {
   };
 
   const getTypeColor = (type) => {
+    if (type === 'opening') return '#D97706';
     if (type === 'invoice') return '#EF4444';
     if (type === 'receipt') return '#10B981';
     if (type === 'journal') return '#8B5CF6';
@@ -131,11 +146,18 @@ export default function CustomerLedgerScreen({ route, navigation }) {
         </Text>
         <Text style={styles.balanceSub}>
           {balance > 0
-            ? 'Amount customer owes'
+            ? 'Amount customer owes you'
             : balance < 0
             ? 'Credit balance (overpaid)'
-            : 'Account settled'}
+            : 'Account fully settled'}
         </Text>
+        {(customer?.openingBalance || 0) > 0 && (
+          <View style={styles.openingPill}>
+            <Text style={styles.openingPillText}>
+              Opening balance: {cur} {(customer.openingBalance || 0).toLocaleString()}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Contact info */}
@@ -143,13 +165,13 @@ export default function CustomerLedgerScreen({ route, navigation }) {
         <View style={styles.contactCard}>
           {customer.phone ? (
             <View style={styles.contactRow}>
-              <Ionicons name="call-outline" size={15} color={colors.textSecondary} />
+              <Ionicons name="call-outline" size={14} color={colors.textSecondary} />
               <Text style={styles.contactText}>{customer.phone}</Text>
             </View>
           ) : null}
           {customer.email ? (
             <View style={styles.contactRow}>
-              <Ionicons name="mail-outline" size={15} color={colors.textSecondary} />
+              <Ionicons name="mail-outline" size={14} color={colors.textSecondary} />
               <Text style={styles.contactText}>{customer.email}</Text>
             </View>
           ) : null}
@@ -170,11 +192,7 @@ export default function CustomerLedgerScreen({ route, navigation }) {
         contentContainerStyle={{ paddingBottom: 40 }}
         ListEmptyComponent={
           <View style={styles.emptyBox}>
-            <Ionicons
-              name="person-outline"
-              size={44}
-              color={colors.textTertiary}
-            />
+            <Ionicons name="person-outline" size={44} color={colors.textTertiary} />
             <Text style={styles.emptyTitle}>No transactions yet</Text>
             <Text style={styles.emptySub}>
               Create a sales invoice or record a receipt for this customer
@@ -184,6 +202,7 @@ export default function CustomerLedgerScreen({ route, navigation }) {
         renderItem={({ item }) => (
           <View style={[
             styles.txnRow,
+            item.type === 'opening' && styles.txnRowOpening,
             item.type === 'receipt' && styles.txnRowReceipt,
             item.type === 'journal' && styles.txnRowJournal,
           ]}>
@@ -207,13 +226,11 @@ export default function CustomerLedgerScreen({ route, navigation }) {
             </View>
             <Text style={[styles.txnDebit, { textAlign: 'right' }]}>
               {item.debit > 0
-                ? `${cur} ${item.debit.toLocaleString()}`
-                : '—'}
+                ? `${cur} ${item.debit.toLocaleString()}` : '—'}
             </Text>
             <Text style={[styles.txnCredit, { textAlign: 'right' }]}>
               {item.credit > 0
-                ? `${cur} ${item.credit.toLocaleString()}`
-                : '—'}
+                ? `${cur} ${item.credit.toLocaleString()}` : '—'}
             </Text>
             <Text style={[
               styles.txnBalance,
@@ -254,7 +271,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 14,
     backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border,
   },
-  title: { fontSize: 17, fontWeight: '700', color: colors.textPrimary, flex: 1, textAlign: 'center' },
+  title: {
+    fontSize: 17, fontWeight: '700', color: colors.textPrimary,
+    flex: 1, textAlign: 'center',
+  },
   balanceCard: {
     backgroundColor: '#fff', margin: 16, borderRadius: 16, padding: 20,
     alignItems: 'center', shadowColor: '#000',
@@ -263,9 +283,14 @@ const styles = StyleSheet.create({
   balanceLabel:  { fontSize: 13, color: colors.textSecondary },
   balanceAmount: { fontSize: 28, fontWeight: '700' },
   balanceSub:    { fontSize: 12, color: colors.textTertiary, marginTop: 2 },
+  openingPill: {
+    backgroundColor: '#FEF3C7', borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 4, marginTop: 6,
+  },
+  openingPillText: { fontSize: 11, fontWeight: '600', color: '#92400E' },
   contactCard: {
     backgroundColor: '#fff', marginHorizontal: 16, marginBottom: 12,
-    borderRadius: 12, padding: 12, gap: 8,
+    borderRadius: 12, padding: 12, gap: 6,
   },
   contactRow:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
   contactText: { fontSize: 13, color: colors.textSecondary },
@@ -283,6 +308,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: colors.border,
     backgroundColor: '#fff', alignItems: 'center',
   },
+  txnRowOpening: { backgroundColor: '#FFFBEB' },
   txnRowReceipt: { backgroundColor: '#F0FDF4' },
   txnRowJournal: { backgroundColor: '#FAF5FF' },
   txnTitleRow:   { flexDirection: 'row', alignItems: 'center', gap: 5 },

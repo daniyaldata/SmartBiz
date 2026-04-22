@@ -26,98 +26,105 @@ export default function AccountLedgerScreen({ route, navigation }) {
   const cur = biz.meta?.currency || 'PKR';
 
   // Build all transactions for this account
-  const rawTxns = [
+ const rawTxns = [
 
-    // Opening balance
-    ...(account.openingBalance > 0 ? [{
-      id: 'ob',
-      date: biz.meta?.createdAt || new Date().toISOString(),
-      description: 'Opening Balance',
-      type: 'opening',
-      in: account.openingBalance,
+  // Opening balance — always show if openingBalance is set (even if 0)
+  ...((account.openingBalance !== undefined && account.openingBalance !== null)
+    ? [{
+        id: 'ob',
+        date: account.createdAt || biz.meta?.createdAt || new Date().toISOString(),
+        description: 'Opening Balance',
+        type: 'opening',
+        in: account.openingBalance > 0 ? account.openingBalance : 0,
+        out: account.openingBalance < 0 ? Math.abs(account.openingBalance) : 0,
+        ref: null,
+      }]
+    : []
+  ),
+
+  // Receipts — money in
+  ...(biz.transactions || [])
+    .filter(t => t.transactionType === 'receipt' && t.accountId === accountId)
+    .map(t => ({
+      id: t.id,
+      date: t.date,
+      description: t.partyName
+        ? `Receipt — ${t.partyName}`
+        : t.incomeAccountName
+        ? `Receipt — ${t.incomeAccountName}`
+        : 'Receipt',
+      type: 'receipt',
+      in: t.amount || 0,
+      out: 0,
+      ref: t.reference || null,
+    })),
+
+  // Payments — money out
+  ...(biz.transactions || [])
+    .filter(t => t.transactionType === 'payment' && t.accountId === accountId)
+    .map(t => ({
+      id: t.id,
+      date: t.date,
+      description: t.partyName
+        ? `Payment — ${t.partyName}`
+        : t.expenseAccountName
+        ? `Payment — ${t.expenseAccountName}`
+        : 'Payment',
+      type: 'payment',
+      in: 0,
+      out: t.amount || 0,
+      ref: t.reference || null,
+    })),
+
+  // Transfers in
+  ...(biz.transactions || [])
+    .filter(t => t.transactionType === 'transfer' && t.toAccountId === accountId)
+    .map(t => ({
+      id: t.id + '_in',
+      date: t.date,
+      description: `Transfer from ${t.fromAccountName || 'account'}`,
+      type: 'transfer',
+      in: t.amount || 0,
       out: 0,
       ref: null,
-    }] : []),
+    })),
 
-    // Receipts — money in
-    ...(biz.transactions || [])
-      .filter(t => t.transactionType === 'receipt' && t.accountId === accountId)
-      .map(t => ({
-        id: t.id,
-        date: t.date,
-        description: t.partyName
-          ? `Receipt — ${t.partyName}`
-          : t.incomeAccountName
-          ? `Receipt — ${t.incomeAccountName}`
-          : 'Receipt',
-        type: 'receipt',
-        in: t.amount || 0,
-        out: 0,
-        ref: t.reference || null,
-      })),
+  // Transfers out
+  ...(biz.transactions || [])
+    .filter(t => t.transactionType === 'transfer' && t.fromAccountId === accountId)
+    .map(t => ({
+      id: t.id + '_out',
+      date: t.date,
+      description: `Transfer to ${t.toAccountName || 'account'}`,
+      type: 'transfer',
+      in: 0,
+      out: t.amount || 0,
+      ref: null,
+    })),
 
-    // Payments — money out
-    ...(biz.transactions || [])
-      .filter(t => t.transactionType === 'payment' && t.accountId === accountId)
-      .map(t => ({
-        id: t.id,
-        date: t.date,
-        description: t.partyName
-          ? `Payment — ${t.partyName}`
-          : t.expenseAccountName
-          ? `Payment — ${t.expenseAccountName}`
-          : 'Payment',
-        type: 'payment',
-        in: 0,
-        out: t.amount || 0,
-        ref: t.reference || null,
-      })),
+  // Journal entries
+  ...(biz.journalEntries || []).flatMap(je =>
+    (je.lines || [])
+      .filter(line =>
+        line.accountId === accountId && line.accountCategory === 'bank'
+      )
+      .map(line => ({
+        id: `${je.id}_${line.lineId}`,
+        date: je.date,
+        description: `Journal — ${je.description}`,
+        type: 'journal',
+        in:  line.debit  || 0,
+        out: line.credit || 0,
+        ref: null,
+      }))
+  ),
 
-    // Transfers in
-    ...(biz.transactions || [])
-      .filter(t => t.transactionType === 'transfer' && t.toAccountId === accountId)
-      .map(t => ({
-        id: t.id + '_in',
-        date: t.date,
-        description: `Transfer from ${t.fromAccountName || 'account'}`,
-        type: 'transfer',
-        in: t.amount || 0,
-        out: 0,
-        ref: t.reference || null,
-      })),
-
-    // Transfers out
-    ...(biz.transactions || [])
-      .filter(t => t.transactionType === 'transfer' && t.fromAccountId === accountId)
-      .map(t => ({
-        id: t.id + '_out',
-        date: t.date,
-        description: `Transfer to ${t.toAccountName || 'account'}`,
-        type: 'transfer',
-        in: 0,
-        out: t.amount || 0,
-        ref: t.reference || null,
-      })),
-
-    // Journal entries affecting this account
-    ...(biz.journalEntries || []).flatMap(je =>
-      (je.lines || [])
-        .filter(line =>
-          line.accountId === accountId && line.accountCategory === 'bank'
-        )
-        .map(line => ({
-          id: `${je.id}_${line.lineId}`,
-          date: je.date,
-          description: `Journal — ${je.description}`,
-          type: 'journal',
-          // Debit = money in, Credit = money out
-          in: line.debit || 0,
-          out: line.credit || 0,
-          ref: null,
-        }))
-    ),
-
-  ].sort((a, b) => new Date(a.date) - new Date(b.date));
+].sort((a, b) => {
+  // Always keep opening balance first regardless of date
+  if (a.id === 'ob') return -1;
+  if (b.id === 'ob') return 1;
+  return new Date(a.date) - new Date(b.date);
+});
 
   // Calculate running balance
   let running = 0;

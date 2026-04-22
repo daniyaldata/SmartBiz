@@ -189,46 +189,6 @@ export const getInvoiceStatus = (invoice) => {
 
 // ─── BALANCE CALCULATORS ──────────────────────────────────────────────────────
 
-export const getCustomerBalance = (business, customerId) => {
-  try {
-    const invoiced = (business.salesInvoices || [])
-      .filter(inv => inv.customerId === customerId)
-      .reduce((sum, inv) => sum + (inv.total || 0), 0);
-    const received = (business.transactions || [])
-      .filter(t => t.transactionType === 'receipt' && t.partyId === customerId)
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
-    return invoiced - received;
-  } catch { return 0; }
-};
-
-export const getSupplierBalance = (business, supplierId) => {
-  try {
-    const billed = (business.purchaseInvoices || [])
-      .filter(inv => inv.supplierId === supplierId)
-      .reduce((sum, inv) => sum + (inv.total || 0), 0);
-    const paid = (business.transactions || [])
-      .filter(t => t.transactionType === 'payment' && t.partyId === supplierId)
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
-    return billed - paid;
-  } catch { return 0; }
-};
-
-export const getTotalReceivables = (business) => {
-  try {
-    return (business.customers || []).reduce(
-      (sum, c) => sum + Math.max(0, getCustomerBalance(business, c.id)), 0
-    );
-  } catch { return 0; }
-};
-
-export const getTotalPayables = (business) => {
-  try {
-    return (business.suppliers || []).reduce(
-      (sum, s) => sum + Math.max(0, getSupplierBalance(business, s.id)), 0
-    );
-  } catch { return 0; }
-};
-
 export const getCashBalance = (business) => {
   try {
     return (business.bankAccounts || [])
@@ -267,16 +227,26 @@ export const getIncomeAccountBalance = (business, accountId) => {
 
 // ─── FIFO HELPERS (internal) ──────────────────────────────────────────────────
 
-const applyFifoReceipt = (invoices, customerId, amount) => {
+const applyFifoReceipt = (invoices, customerId, amount, skipInvoiceId = null) => {
   let remaining = amount;
-  return invoices.map(inv => {
-    if (inv.customerId !== customerId || remaining <= 0) return inv;
+  // Sort by date ascending so oldest invoice gets paid first
+  const sorted = [...invoices].sort(
+    (a, b) => new Date(a.date) - new Date(b.date)
+  );
+  const applied = sorted.map(inv => {
+    if (inv.customerId !== customerId) return inv;
+    if (skipInvoiceId && inv.id === skipInvoiceId) return inv;
+    if (remaining <= 0) return inv;
     const balance = inv.total - (inv.amountPaid || 0);
     if (balance <= 0) return inv;
     const apply = Math.min(balance, remaining);
     remaining -= apply;
     return { ...inv, amountPaid: (inv.amountPaid || 0) + apply };
   });
+  // Restore original order
+  return invoices.map(orig =>
+    applied.find(a => a.id === orig.id) || orig
+  );
 };
 
 const reverseFifoReceipt = (invoices, customerId, amount) => {
@@ -359,19 +329,32 @@ export const saveReceiptTransaction = async (biz, txn) => {
   transactions.push(txn);
   updated.transactions = transactions;
 
-  if (txn.linkedInvoiceId) {
-    updated.salesInvoices = (updated.salesInvoices || biz.salesInvoices || []).map(inv =>
+ if (txn.linkedInvoiceId) {
+  // Apply to specific invoice first, then cascade overflow to next unpaid invoices
+  let invoices = [...(updated.salesInvoices || biz.salesInvoices || [])];
+  const targetInv = invoices.find(i => i.id === txn.linkedInvoiceId);
+  if (targetInv) {
+    const invoiceBalance = targetInv.total - (targetInv.amountPaid || 0);
+    const overflow = txn.amount - invoiceBalance;
+    // Apply to target invoice (capped at its total)
+    invoices = invoices.map(inv =>
       inv.id === txn.linkedInvoiceId
         ? { ...inv, amountPaid: Math.min(inv.total, (inv.amountPaid || 0) + txn.amount) }
         : inv
     );
-  } else if (txn.partyId && txn.partyType === 'customer') {
-    updated.salesInvoices = applyFifoReceipt(
-      updated.salesInvoices || biz.salesInvoices || [],
-      txn.partyId,
-      txn.amount
-    );
+    // If there is overflow, apply it FIFO to remaining unpaid invoices
+    if (overflow > 0 && txn.partyId) {
+      invoices = applyFifoReceipt(invoices, txn.partyId, overflow, txn.linkedInvoiceId);
+    }
   }
+  updated.salesInvoices = invoices;
+} else if (txn.partyId && txn.partyType === 'customer') {
+  updated.salesInvoices = applyFifoReceipt(
+    updated.salesInvoices || biz.salesInvoices || [],
+    txn.partyId,
+    txn.amount
+  );
+}
 
   if (txn.accountId) {
     updated.bankAccounts = (updated.bankAccounts || biz.bankAccounts || []).map(a =>
@@ -428,18 +411,28 @@ export const savePaymentTransaction = async (biz, txn) => {
   updated.transactions = transactions;
 
   if (txn.linkedInvoiceId) {
-    updated.purchaseInvoices = (updated.purchaseInvoices || biz.purchaseInvoices || []).map(inv =>
+  let invoices = [...(updated.purchaseInvoices || biz.purchaseInvoices || [])];
+  const targetInv = invoices.find(i => i.id === txn.linkedInvoiceId);
+  if (targetInv) {
+    const invoiceBalance = targetInv.total - (targetInv.amountPaid || 0);
+    const overflow = txn.amount - invoiceBalance;
+    invoices = invoices.map(inv =>
       inv.id === txn.linkedInvoiceId
         ? { ...inv, amountPaid: Math.min(inv.total, (inv.amountPaid || 0) + txn.amount) }
         : inv
     );
-  } else if (txn.partyId && txn.partyType === 'supplier') {
-    updated.purchaseInvoices = applyFifoPayment(
-      updated.purchaseInvoices || biz.purchaseInvoices || [],
-      txn.partyId,
-      txn.amount
-    );
+    if (overflow > 0 && txn.partyId) {
+      invoices = applyFifoPayment(invoices, txn.partyId, overflow, txn.linkedInvoiceId);
+    }
   }
+  updated.purchaseInvoices = invoices;
+} else if (txn.partyId && txn.partyType === 'supplier') {
+  updated.purchaseInvoices = applyFifoPayment(
+    updated.purchaseInvoices || biz.purchaseInvoices || [],
+    txn.partyId,
+    txn.amount
+  );
+}
 
   if (txn.accountId) {
     updated.bankAccounts = (updated.bankAccounts || biz.bankAccounts || []).map(a =>
@@ -580,6 +573,9 @@ export const saveJournalEntry = async (biz, entry) => {
   updated.purchaseInvoices = applyJournalApEffects(
     updated.purchaseInvoices || [], entry.lines || []
   );
+  updated.items = applyJournalInventoryEffects(
+  updated.items || [], entry.lines || []
+  );
   updated.journalEntries = [
     ...(updated.journalEntries || []),
     entry,
@@ -602,6 +598,9 @@ export const deleteJournalEntry = async (biz, entryId) => {
   );
   updated.purchaseInvoices = reverseJournalApEffects(
     biz.purchaseInvoices || [], entry.lines || []
+  );
+  updated.items = reverseJournalInventoryEffects(
+  biz.items || [], entry.lines || []
   );
   updated.journalEntries = (biz.journalEntries || []).filter(
     e => e.id !== entryId
@@ -784,45 +783,41 @@ const applyFifoToSupplierInvoices = (invoices, supplierId, amount) => {
 export const applyPurchaseInvoiceToInventory = (biz, invoice, oldInvoice = null) => {
   let items = [...(biz.items || [])];
 
-  // Reverse old invoice stock if editing
+  // Reverse old invoice qty if editing
   if (oldInvoice) {
     (oldInvoice.lines || []).forEach(line => {
       const qty = parseFloat(line.qty) || 0;
       if (qty <= 0) return;
       const idx = items.findIndex(
-        i => i.name?.toLowerCase() === line.description?.toLowerCase() ||
+        i => i.name?.toLowerCase().trim() ===
+             line.description?.toLowerCase().trim() ||
              i.id === line.itemId
       );
       if (idx >= 0) {
         items[idx] = {
           ...items[idx],
-          stock: Math.max(0, (items[idx].stock || 0) - qty),
+          stock: (items[idx].stock || 0) - qty,
         };
       }
     });
   }
 
-  // Apply new invoice stock
+  // Apply new invoice — update stock qty only
+  // purchasePrice and costPrice are NEVER changed here
   (invoice.lines || []).forEach(line => {
-    const qty  = parseFloat(line.qty) || 0;
-    const rate = parseFloat(line.rate) || 0;
+    const qty = parseFloat(line.qty) || 0;
     if (qty <= 0) return;
     const idx = items.findIndex(
-      i => i.name?.toLowerCase() === line.description?.toLowerCase() ||
+      i => i.name?.toLowerCase().trim() ===
+           line.description?.toLowerCase().trim() ||
            i.id === line.itemId
     );
     if (idx >= 0) {
-      // Update stock and cost price with weighted average
-      const currentStock = items[idx].stock || 0;
-      const currentCost  = items[idx].costPrice || 0;
-      const newStock     = currentStock + qty;
-      const newAvgCost   = newStock > 0
-        ? ((currentStock * currentCost) + (qty * rate)) / newStock
-        : rate;
       items[idx] = {
         ...items[idx],
-        stock:     newStock,
-        costPrice: Math.round(newAvgCost * 100) / 100,
+        stock: (items[idx].stock || 0) + qty,
+        // DO NOT update costPrice or purchasePrice here
+        // Average cost is calculated on the fly in InventoryLedgerScreen
       };
     }
   });
@@ -854,13 +849,14 @@ export const reversePurchaseInvoiceFromInventory = (biz, invoice) => {
 export const applySalesInvoiceToInventory = (biz, invoice, oldInvoice = null) => {
   let items = [...(biz.items || [])];
 
-  // Reverse old invoice stock if editing
+  // Reverse old invoice qty if editing
   if (oldInvoice) {
     (oldInvoice.lines || []).forEach(line => {
       const qty = parseFloat(line.qty) || 0;
       if (qty <= 0) return;
       const idx = items.findIndex(
-        i => i.name?.toLowerCase() === line.description?.toLowerCase() ||
+        i => i.name?.toLowerCase().trim() ===
+             line.description?.toLowerCase().trim() ||
              i.id === line.itemId
       );
       if (idx >= 0) {
@@ -872,24 +868,27 @@ export const applySalesInvoiceToInventory = (biz, invoice, oldInvoice = null) =>
     });
   }
 
-  // Apply new invoice stock reduction
+  // Apply new invoice — reduce stock qty only, allow negative for oversell
   (invoice.lines || []).forEach(line => {
     const qty = parseFloat(line.qty) || 0;
     if (qty <= 0) return;
     const idx = items.findIndex(
-      i => i.name?.toLowerCase() === line.description?.toLowerCase() ||
+      i => i.name?.toLowerCase().trim() ===
+           line.description?.toLowerCase().trim() ||
            i.id === line.itemId
     );
     if (idx >= 0) {
       items[idx] = {
         ...items[idx],
-        stock: Math.max(0, (items[idx].stock || 0) - qty),
+        stock: (items[idx].stock || 0) - qty,
+        // Allow negative stock (oversell) — shown as "To Order" in ledger
       };
     }
   });
 
   return items;
 };
+
 
 // Called when a sales invoice is deleted — restores stock
 export const reverseSalesInvoiceFromInventory = (biz, invoice) => {
@@ -909,4 +908,226 @@ export const reverseSalesInvoiceFromInventory = (biz, invoice) => {
     }
   });
   return items;
+};
+
+// Inventory journal effects — quantity + value based
+// Each inventory line can have:
+//   qty > 0: stock movement (debit = stock in, credit = stock out)
+//   qty = 0 or missing: cost adjustment only (no stock change)
+const applyJournalInventoryEffects = (items, lines) => {
+  let result = [...items];
+  lines.forEach(line => {
+    if (line.accountCategory !== 'inventory') return;
+    const debit  = line.debit  || 0;
+    const credit = line.credit || 0;
+    const qty    = parseFloat(line.qty) || 0;
+
+    result = result.map(item => {
+      if (item.id !== line.accountId) return item;
+
+      const currentStock = item.stock || 0;
+      const currentCost  = item.costPrice || 0;
+      const currentValue = currentStock * currentCost;
+
+      if (qty > 0) {
+        // Quantity-based entry: stock moves
+        if (debit > 0) {
+          // Debit inventory = stock IN (purchase/receipt)
+          const unitCost   = debit / qty;
+          const newStock   = currentStock + qty;
+          const newValue   = currentValue + debit;
+          const newAvgCost = newStock > 0 ? newValue / newStock : unitCost;
+          return {
+            ...item,
+            stock:     newStock,
+            costPrice: Math.round(newAvgCost * 100) / 100,
+          };
+        } else if (credit > 0) {
+          // Credit inventory = stock OUT (write-off/disposal)
+          const newStock = currentStock - qty;
+          return {
+            ...item,
+            stock: newStock, // allow negative for oversell
+          };
+        }
+      } else {
+        // Amount-only entry: cost adjustment, no stock change
+        if (debit > 0) {
+          // Debit = add cost to inventory value (labour, freight etc.)
+          const newValue   = currentValue + debit;
+          const newAvgCost = currentStock > 0 ? newValue / currentStock : currentCost;
+          return {
+            ...item,
+            costPrice: Math.round(newAvgCost * 100) / 100,
+          };
+        } else if (credit > 0) {
+          // Credit = reduce inventory value
+          const newValue   = Math.max(0, currentValue - credit);
+          const newAvgCost = currentStock > 0 ? newValue / currentStock : currentCost;
+          return {
+            ...item,
+            costPrice: Math.round(newAvgCost * 100) / 100,
+          };
+        }
+      }
+      return item;
+    });
+  });
+  return result;
+};
+
+const reverseJournalInventoryEffects = (items, lines) => {
+  let result = [...items];
+  lines.forEach(line => {
+    if (line.accountCategory !== 'inventory') return;
+    const debit  = line.debit  || 0;
+    const credit = line.credit || 0;
+    const qty    = parseFloat(line.qty) || 0;
+
+    result = result.map(item => {
+      if (item.id !== line.accountId) return item;
+
+      const currentStock = item.stock || 0;
+      const currentCost  = item.costPrice || 0;
+      const currentValue = currentStock * currentCost;
+
+      if (qty > 0) {
+        if (debit > 0) {
+          // Reverse stock in
+          const newStock   = currentStock - qty;
+          const newValue   = Math.max(0, currentValue - debit);
+          const newAvgCost = newStock > 0 ? newValue / newStock : currentCost;
+          return {
+            ...item,
+            stock:     newStock,
+            costPrice: Math.round(newAvgCost * 100) / 100,
+          };
+        } else if (credit > 0) {
+          // Reverse stock out
+          return {
+            ...item,
+            stock: currentStock + qty,
+          };
+        }
+      } else {
+        // Reverse cost adjustment
+        if (debit > 0) {
+          const newValue   = Math.max(0, currentValue - debit);
+          const newAvgCost = currentStock > 0 ? newValue / currentStock : currentCost;
+          return {
+            ...item,
+            costPrice: Math.round(newAvgCost * 100) / 100,
+          };
+        } else if (credit > 0) {
+          const newValue   = currentValue + credit;
+          const newAvgCost = currentStock > 0 ? newValue / currentStock : currentCost;
+          return {
+            ...item,
+            costPrice: Math.round(newAvgCost * 100) / 100,
+          };
+        }
+      }
+      return item;
+    });
+  });
+  return result;
+};
+
+// ─── OPENING BALANCE HELPERS ──────────────────────────────────────────────────
+
+// Get effective customer balance including opening balance
+// Opening balance = amount customer owed before SmartBiz was set up
+export const getCustomerBalance = (business, customerId) => {
+  try {
+    const customer = (business.customers || []).find(c => c.id === customerId);
+    const openingBalance = customer?.openingBalance || 0;
+
+    // Amount invoiced in SmartBiz
+    const invoiced = (business.salesInvoices || [])
+      .filter(inv => inv.customerId === customerId)
+      .reduce((sum, inv) => sum + (inv.total || 0), 0);
+
+    // Amount paid via receipts
+    const received = (business.transactions || [])
+      .filter(t =>
+        t.transactionType === 'receipt' &&
+        t.partyId === customerId &&
+        t.partyType === 'customer'
+      )
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+
+    // Journal credits on customer (reduce balance)
+    const journalCredits = (business.journalEntries || [])
+      .flatMap(je => je.lines || [])
+      .filter(l =>
+        l.accountCategory === 'customer' &&
+        (l.accountId === customerId || l.linkedCustomerId === customerId)
+      )
+      .reduce((sum, l) => sum + (l.credit || 0), 0);
+
+    // Journal debits on customer (increase balance)
+    const journalDebits = (business.journalEntries || [])
+      .flatMap(je => je.lines || [])
+      .filter(l =>
+        l.accountCategory === 'customer' &&
+        (l.accountId === customerId || l.linkedCustomerId === customerId)
+      )
+      .reduce((sum, l) => sum + (l.debit || 0), 0);
+
+    return openingBalance + invoiced + journalDebits - received - journalCredits;
+  } catch { return 0; }
+};
+
+// Get effective supplier balance including opening balance
+export const getSupplierBalance = (business, supplierId) => {
+  try {
+    const supplier = (business.suppliers || []).find(s => s.id === supplierId);
+    const openingBalance = supplier?.openingBalance || 0;
+
+    const billed = (business.purchaseInvoices || [])
+      .filter(inv => inv.supplierId === supplierId)
+      .reduce((sum, inv) => sum + (inv.total || 0), 0);
+
+    const paid = (business.transactions || [])
+      .filter(t =>
+        t.transactionType === 'payment' &&
+        t.partyId === supplierId &&
+        t.partyType === 'supplier'
+      )
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+
+    const journalDebits = (business.journalEntries || [])
+      .flatMap(je => je.lines || [])
+      .filter(l =>
+        l.accountCategory === 'supplier' &&
+        (l.accountId === supplierId || l.linkedSupplierId === supplierId)
+      )
+      .reduce((sum, l) => sum + (l.debit || 0), 0);
+
+    const journalCredits = (business.journalEntries || [])
+      .flatMap(je => je.lines || [])
+      .filter(l =>
+        l.accountCategory === 'supplier' &&
+        (l.accountId === supplierId || l.linkedSupplierId === supplierId)
+      )
+      .reduce((sum, l) => sum + (l.credit || 0), 0);
+
+    return openingBalance + billed + journalCredits - paid - journalDebits;
+  } catch { return 0; }
+};
+
+export const getTotalReceivables = (business) => {
+  try {
+    return (business.customers || []).reduce(
+      (sum, c) => sum + Math.max(0, getCustomerBalance(business, c.id)), 0
+    );
+  } catch { return 0; }
+};
+
+export const getTotalPayables = (business) => {
+  try {
+    return (business.suppliers || []).reduce(
+      (sum, s) => sum + Math.max(0, getSupplierBalance(business, s.id)), 0
+    );
+  } catch { return 0; }
 };

@@ -81,9 +81,15 @@ export default function PurchaseInvoiceFormScreen({ route, navigation }) {
         ? biz.purchaseInvoices?.find(i => i.id === invoiceId)
         : null;
       const invoice = {
-        id: invoiceId || generateId(),
-        number: existing?.number ||
-          String((biz.purchaseInvoices?.length || 0) + 1).padStart(4, '0'),
+         id: invoiceId || generateId(),
+       number: existing?.number || (() => {
+         const existingNumbers = (biz.purchaseInvoices || [])
+          .map(i => parseInt(i.number) || 0);
+        const maxNum = existingNumbers.length > 0
+          ? Math.max(...existingNumbers) : 0;
+        return String(maxNum + 1).padStart(4, '0');
+       })(),
+       
         supplierId: supplier.id,
         supplierName: supplier.displayName,
         lines,
@@ -319,7 +325,7 @@ export default function PurchaseInvoiceFormScreen({ route, navigation }) {
               style={styles.modalItem}
               onPress={() => {
                 updateLine(activeLineId, 'description', item.name);
-                updateLine(activeLineId, 'rate', item.costPrice?.toString() || '');
+                updateLine(activeLineId, 'rate', (item.purchasePrice || item.costPrice || 0).toString());
                 setShowItemPicker(false);
                 setActiveLineId(null);
               }}

@@ -35,9 +35,9 @@ export default function InventoryWriteOffScreen({ route, navigation }) {
     .sort((a, b) => new Date(b.date) - new Date(a.date));
 
   const cur = biz?.meta?.currency || 'PKR';
-  const writeOffAmount = selectedItem
-    ? (parseFloat(qty) || 0) * (selectedItem.costPrice || 0)
-    : 0;
+  const writeOffAmount = selectedItem && biz
+  ? (parseFloat(qty) || 0) * getWeightedAvgCost(selectedItem, biz)
+  : 0;
 
   const openForm = () => {
     setSelectedItem(null);
@@ -46,6 +46,44 @@ export default function InventoryWriteOffScreen({ route, navigation }) {
     setDate(new Date().toISOString().split('T')[0]);
     setShowForm(true);
   };
+  
+  // Calculate weighted average cost for this item from its full purchase history
+const getWeightedAvgCost = (item, biz) => {
+  let runningQty   = item.openingStock || 0;
+  let runningValue = runningQty * (item.openingStockRate || item.costPrice || 0);
+
+  // Add all purchase invoices
+  (biz.purchaseInvoices || []).forEach(inv => {
+    (inv.lines || []).forEach(line => {
+      const match =
+        line.description?.toLowerCase().trim() ===
+          item.name?.toLowerCase().trim() ||
+        line.itemId === item.id;
+      if (!match) return;
+      const qty  = parseFloat(line.qty)  || 0;
+      const rate = parseFloat(line.rate) || 0;
+      if (qty <= 0) return;
+      runningQty   += qty;
+      runningValue += qty * rate;
+    });
+  });
+
+  // Add journal inventory cost adjustments (no qty — pure cost additions)
+  (biz.journalEntries || []).forEach(je => {
+    (je.lines || []).forEach(line => {
+      if (line.accountCategory !== 'inventory') return;
+      if (line.accountId !== item.id) return;
+      const qty   = parseFloat(line.qty) || 0;
+      const debit = line.debit || 0;
+      if (qty === 0 && debit > 0) {
+        // Cost adjustment only — adds to value without qty
+        runningValue += debit;
+      }
+    });
+  });
+
+  return runningQty > 0 ? runningValue / runningQty : (item.costPrice || 0);
+};
 
   const handleSave = async () => {
     if (!selectedItem) {
@@ -66,14 +104,15 @@ export default function InventoryWriteOffScreen({ route, navigation }) {
     }
     setSaving(true);
     try {
-      const amount = qtyNum * (selectedItem.costPrice || 0);
+      const avgCost = getWeightedAvgCost(selectedItem, biz);
+      const amount  = Math.round(qtyNum * avgCost * 100) / 100;
       const writeOff = {
-        id: generateId(),
-        itemId: selectedItem.id,
-        itemName: selectedItem.name,
-        qty: qtyNum,
-        costPrice: selectedItem.costPrice || 0,
-        amount,
+         id: generateId(),
+         itemId: selectedItem.id,
+         itemName: selectedItem.name,
+         qty: qtyNum,
+         costPrice: avgCost,   // store the actual avg cost used, not item.costPrice
+         amount,
         reason: reason.trim(),
         date,
         createdAt: new Date().toISOString(),

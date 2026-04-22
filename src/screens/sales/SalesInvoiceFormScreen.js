@@ -75,6 +75,58 @@ export default function SalesInvoiceFormScreen({ route, navigation }) {
       Alert.alert('Incomplete', 'Please fill all item descriptions.');
       return;
     }
+
+    // Check for negative stock on any inventory item
+    const stockWarnings = [];
+    lines.forEach(line => {
+      const qty = parseFloat(line.qty) || 0;
+      if (qty <= 0) return;
+      const matchedItem = biz.items?.find(
+        i => i.name?.toLowerCase() === line.description?.toLowerCase() ||
+             i.id === line.itemId
+      );
+      if (matchedItem) {
+        const availableStock = matchedItem.stock || 0;
+        const isExistingInvoice = invoiceId;
+        // For edits, add back the qty from the old line
+        const oldLine = isExistingInvoice
+          ? (biz.salesInvoices?.find(i => i.id === invoiceId)?.lines || [])
+              .find(l => l.description?.toLowerCase() === line.description?.toLowerCase())
+          : null;
+        const previousQty = parseFloat(oldLine?.qty) || 0;
+        const netChange = qty - previousQty;
+        if (netChange > availableStock) {
+          stockWarnings.push(
+            `${matchedItem.name}: need ${netChange}, only ${availableStock} in stock`
+          );
+        }
+      }
+    });
+
+    if (stockWarnings.length > 0) {
+      return new Promise((resolve) => {
+        Alert.alert(
+          'Stock Warning',
+          `The following items have insufficient stock:\n\n${stockWarnings.join('\n')}\n\nDo you want to continue anyway?`,
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            {
+              text: 'Continue anyway',
+              style: 'destructive',
+              onPress: () => resolve(true),
+            },
+          ]
+        );
+      }).then(confirmed => {
+        if (!confirmed) return;
+        proceedSave();
+      });
+    }
+
+    proceedSave();
+  };
+
+  const proceedSave = async () => {
     setLoading(true);
     try {
       const existingInv = invoiceId
@@ -82,8 +134,14 @@ export default function SalesInvoiceFormScreen({ route, navigation }) {
         : null;
       const invoice = {
         id: invoiceId || generateId(),
-        number: existingInv?.number ||
-          String((biz.salesInvoices?.length || 0) + 1).padStart(4, '0'),
+        number: existingInv?.number || (() => {
+          // Find highest existing number and increment
+           const existingNumbers = (biz.salesInvoices || [])
+            .map(i => parseInt(i.number) || 0);
+           const maxNum = existingNumbers.length > 0
+             ? Math.max(...existingNumbers) : 0;
+           return String(maxNum + 1).padStart(4, '0');
+        })(),
         customerId: customer.id,
         customerName: customer.displayName,
         lines,
@@ -98,15 +156,14 @@ export default function SalesInvoiceFormScreen({ route, navigation }) {
       if (invoiceId) {
         const oldInvoice = biz.salesInvoices?.find(i => i.id === invoiceId);
         updated.salesInvoices = biz.salesInvoices.map(i =>
-           i.id === invoiceId ? invoice : i
-       );
+          i.id === invoiceId ? invoice : i
+        );
         updated.items = applySalesInvoiceToInventory(updated, invoice, oldInvoice);
       } else {
         updated.salesInvoices = [...(biz.salesInvoices || []), invoice];
         updated.items = applySalesInvoiceToInventory(updated, invoice);
       }
       await saveBusiness(updated);
-
       navigation.goBack();
     } catch (e) {
       Alert.alert('Error', 'Could not save invoice.');
@@ -123,14 +180,13 @@ export default function SalesInvoiceFormScreen({ route, navigation }) {
         onPress: async () => {
           const invoiceToDelete = biz.salesInvoices?.find(i => i.id === invoiceId);
           const updated = {
-             ...biz,
-             salesInvoices: biz.salesInvoices.filter(i => i.id !== invoiceId),
-             items: invoiceToDelete
-               ? reverseSalesInvoiceFromInventory(biz, invoiceToDelete)
-               : biz.items,
+            ...biz,
+            salesInvoices: biz.salesInvoices.filter(i => i.id !== invoiceId),
+            items: invoiceToDelete
+              ? reverseSalesInvoiceFromInventory(biz, invoiceToDelete)
+              : biz.items,
           };
           await saveBusiness(updated);
-          
           navigation.goBack();
         },
       },

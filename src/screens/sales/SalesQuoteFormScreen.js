@@ -78,8 +78,13 @@ export default function SalesQuoteFormScreen({ route, navigation }) {
         : null;
       const quote = {
         id: quoteId || generateId(),
-        number: existing?.number ||
-          String((biz.salesQuotes?.length || 0) + 1).padStart(4, '0'),
+        number: existing?.number || (() => {
+          const existingNumbers = (biz.salesQuotes || [])
+           .map(q => parseInt(q.number) || 0);
+          const maxNum = existingNumbers.length > 0
+          ? Math.max(...existingNumbers) : 0;
+          return String(maxNum + 1).padStart(4, '0');
+        })(),
         customerId: customer.id,
         customerName: customer.displayName,
         lines,

@@ -191,25 +191,45 @@ if (prefillAmount && defaultType === 'payment') {
       return;
     }
     if (txnType === 'receipt' && !depositAccount) {
-      Alert.alert('Account required', 'Please select a deposit account.');
+       Alert.alert('Account required', 'Please select a deposit account.');
       return;
     }
     if (txnType === 'payment' && !payFromAccount) {
-      Alert.alert('Account required', 'Please select a payment account.');
+       Alert.alert('Account required', 'Please select a payment account.');
       return;
     }
     if (txnType === 'transfer') {
-      if (!fromAccount || !toAccount) {
-        Alert.alert('Accounts required', 'Please select both accounts.');
-        return;
-      }
-      if (fromAccount.id === toAccount.id) {
-        Alert.alert('Invalid', 'From and To accounts must be different.');
-        return;
-      }
+    if (!fromAccount || !toAccount) {
+    Alert.alert('Accounts required', 'Please select both accounts.');
+      return;
     }
+    if (fromAccount.id === toAccount.id) {
+    Alert.alert('Invalid', 'From and To accounts must be different.');
+    return;
+    }
+}
 
-    setLoading(true);
+// Negative balance warning for payments
+  if (txnType === 'payment' && payFromAccount) {
+  const accountBalance = payFromAccount.balance || 0;
+  const paymentAmount = parseFloat(amount) || 0;
+   if (paymentAmount > accountBalance) {
+    const confirmed = await new Promise(resolve => {
+      Alert.alert(
+        'Insufficient Balance',
+        `${payFromAccount.name} has ${biz.meta?.currency} ${accountBalance.toLocaleString()} but you are paying ${biz.meta?.currency} ${paymentAmount.toLocaleString()}.\n\nThis will result in a negative balance. Continue?`,
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Continue anyway', style: 'destructive', onPress: () => resolve(true) },
+        ]
+      );
+    });
+    if (!confirmed) return;
+  }
+}
+
+setLoading(true);
+
     try {
       const id = transactionId || generateId();
 

@@ -24,7 +24,7 @@ const CATEGORIES = [
     sub: (biz) => {
       const total = (biz.bankAccounts || [])
         .reduce((s, a) => s + (a.balance || 0), 0);
-      return `${(biz.bankAccounts || []).length} accounts · ${biz.meta?.currency} ${total.toLocaleString()}`;
+      return `${(biz.bankAccounts || []).length} accounts · ${biz.meta?.currency || ''} ${total.toLocaleString()}`;
     },
   },
   {
@@ -59,24 +59,24 @@ const buildAllAccounts = (biz) => {
   (biz.bankAccounts || []).forEach(a => list.push({
     id: a.id, name: a.name, category: 'bank',
     badgeColor: '#185FA5', badgeBg: '#E6F1FB', badgeLabel: 'Bank',
-    sub: `${biz.meta?.currency} ${(a.balance || 0).toLocaleString()}`,
+    sub: `${biz.meta?.currency || ''} ${(a.balance || 0).toLocaleString()}`,
   }));
   (biz.incomeAccounts || []).forEach(a => list.push({
     id: a.id, name: a.name, category: 'income',
     badgeColor: '#0F6E56', badgeBg: '#E1F5EE', badgeLabel: 'Income',
-    sub: `${a.code} · ${a.group}`,
+    sub: `${a.code || ''} · ${a.group || ''}`,
   }));
   (biz.expenseAccounts || []).forEach(a => list.push({
     id: a.id, name: a.name, category: 'expense',
     badgeColor: '#993C1D', badgeBg: '#FAECE7', badgeLabel: 'Expense',
-    sub: `${a.code} · ${a.group}`,
+    sub: `${a.code || ''} · ${a.group || ''}`,
   }));
   (biz.customers || []).forEach(a => list.push({
-    id: a.id, name: a.displayName, category: 'customer',
+    id: a.id, name: a.displayName || '', category: 'customer',
     badgeColor: '#854F0B', badgeBg: '#FAEEDA', badgeLabel: 'Customer',
   }));
   (biz.suppliers || []).forEach(a => list.push({
-    id: a.id, name: a.displayName, category: 'supplier',
+    id: a.id, name: a.displayName || '', category: 'supplier',
     badgeColor: '#534AB7', badgeBg: '#EEEDFE', badgeLabel: 'Supplier',
   }));
   (biz.items || []).forEach(a => list.push({
@@ -99,6 +99,7 @@ const emptyLine = () => ({
   linkedSupplierId: null,
   linkedInvoiceId: null,
   linkedInvoiceNumber: null,
+  qty: '',
   debit: '',
   credit: '',
 });
@@ -114,14 +115,14 @@ export default function JournalEntriesScreen({ route, navigation }) {
   const [biz, setBiz]       = useState(null);
   const [saving, setSaving] = useState(false);
 
-  // Form state
-  const [showForm, setShowForm]     = useState(false);
-  const [editingId, setEditingId]   = useState(null);
-  const [description, setDescription] = useState('');
-  const [date, setDate]             = useState(new Date().toISOString().split('T')[0]);
-  const [lines, setLines]           = useState([emptyLine(), emptyLine()]);
+  const [showForm, setShowForm]         = useState(false);
+  const [editingId, setEditingId]       = useState(null);
+  const [description, setDescription]   = useState('');
+  const [date, setDate]                 = useState(
+    new Date().toISOString().split('T')[0]
+  );
+  const [lines, setLines] = useState([emptyLine(), emptyLine()]);
 
-  // Picker state — completely separate from form
   const [showPicker, setShowPicker]         = useState(false);
   const [pickerLineId, setPickerLineId]     = useState(null);
   const [pickerStage, setPickerStage]       = useState(STAGE_CATEGORY);
@@ -142,7 +143,7 @@ export default function JournalEntriesScreen({ route, navigation }) {
 
   const cur = biz?.meta?.currency || 'PKR';
 
-  // ── Form ────────────────────────────────────────────────────────────────────
+  // ── Form helpers ──────────────────────────────────────────────────────────
 
   const openCreate = () => {
     setEditingId(null);
@@ -158,7 +159,13 @@ export default function JournalEntriesScreen({ route, navigation }) {
     setDate(entry.date || '');
     setLines(
       entry.lines?.length >= 2
-        ? entry.lines.map(l => ({ ...l, lineId: l.lineId || generateId() }))
+        ? entry.lines.map(l => ({
+            ...l,
+            lineId:  l.lineId || generateId(),
+            qty:     l.qty != null    ? String(l.qty)    : '',
+            debit:   l.debit != null  ? String(l.debit)  : '',
+            credit:  l.credit != null ? String(l.credit) : '',
+          }))
         : [emptyLine(), emptyLine()]
     );
     setShowForm(true);
@@ -168,16 +175,29 @@ export default function JournalEntriesScreen({ route, navigation }) {
     setEditingId(null);
     setDescription(entry.description ? `Copy of ${entry.description}` : '');
     setDate(new Date().toISOString().split('T')[0]);
-    setLines(entry.lines?.map(l => ({ ...l, lineId: generateId() })) || [emptyLine(), emptyLine()]);
+    setLines(
+      entry.lines?.map(l => ({
+        ...l,
+        lineId:  generateId(),
+        qty:     l.qty != null    ? String(l.qty)    : '',
+        debit:   l.debit != null  ? String(l.debit)  : '',
+        credit:  l.credit != null ? String(l.credit) : '',
+      })) || [emptyLine(), emptyLine()]
+    );
     setShowForm(true);
   };
 
   const updateLine = (id, field, value) =>
-    setLines(prev => prev.map(l => l.lineId === id ? { ...l, [field]: value } : l));
+    setLines(prev =>
+      prev.map(l => l.lineId === id ? { ...l, [field]: value } : l)
+    );
 
   const removeLine = (id) => {
     if (lines.length <= 2) {
-      Alert.alert('Minimum 2 lines', 'A journal entry needs at least 2 lines.');
+      Alert.alert(
+        'Minimum 2 lines',
+        'A journal entry needs at least 2 lines.'
+      );
       return;
     }
     setLines(prev => prev.filter(l => l.lineId !== id));
@@ -185,9 +205,14 @@ export default function JournalEntriesScreen({ route, navigation }) {
 
   const addLine = () => setLines(prev => [...prev, emptyLine()]);
 
-  const totalDebit  = lines.reduce((s, l) => s + (parseFloat(l.debit)  || 0), 0);
-  const totalCredit = lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
-  const isBalanced  = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
+  const totalDebit  = lines.reduce(
+    (s, l) => s + (parseFloat(l.debit)  || 0), 0
+  );
+  const totalCredit = lines.reduce(
+    (s, l) => s + (parseFloat(l.credit) || 0), 0
+  );
+  const isBalanced =
+    Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
 
   const handleSave = async () => {
     if (!description.trim()) {
@@ -195,42 +220,48 @@ export default function JournalEntriesScreen({ route, navigation }) {
       return;
     }
     const incomplete = lines.some(l =>
-      !l.accountId || (parseFloat(l.debit) <= 0 && parseFloat(l.credit) <= 0)
+      !l.accountId ||
+      (parseFloat(l.debit) <= 0 && parseFloat(l.credit) <= 0)
     );
     if (incomplete) {
-      Alert.alert('Incomplete lines', 'Each line needs an account and a debit or credit amount.');
+      Alert.alert(
+        'Incomplete lines',
+        'Each line needs an account and a debit or credit amount.'
+      );
       return;
     }
     if (!isBalanced) {
       Alert.alert(
         'Unbalanced entry',
-        `Debits (${cur} ${totalDebit.toLocaleString()}) ≠ Credits (${cur} ${totalCredit.toLocaleString()})`
+        `Debits (${cur} ${totalDebit.toLocaleString()}) ≠ ` +
+        `Credits (${cur} ${totalCredit.toLocaleString()})`
       );
       return;
     }
     setSaving(true);
     try {
       const entry = {
-        id: editingId || generateId(),
+        id:          editingId || generateId(),
         description: description.trim(),
         date,
         lines: lines.map(l => ({
-          lineId: l.lineId,
-          accountId: l.accountId,
-          accountName: l.accountName,
-          accountCategory: l.accountCategory,
-          accountBadgeColor: l.accountBadgeColor,
-          accountBadgeBg: l.accountBadgeBg,
-          accountBadgeLabel: l.accountBadgeLabel,
-          linkedCustomerId: l.linkedCustomerId || null,
-          linkedSupplierId: l.linkedSupplierId || null,
-          linkedInvoiceId: l.linkedInvoiceId || null,
-          linkedInvoiceNumber: l.linkedInvoiceNumber || null,
-          debit: parseFloat(l.debit) || 0,
+          lineId:             l.lineId,
+          accountId:          l.accountId,
+          accountName:        l.accountName,
+          accountCategory:    l.accountCategory,
+          accountBadgeColor:  l.accountBadgeColor,
+          accountBadgeBg:     l.accountBadgeBg,
+          accountBadgeLabel:  l.accountBadgeLabel,
+          linkedCustomerId:   l.linkedCustomerId   || null,
+          linkedSupplierId:   l.linkedSupplierId   || null,
+          linkedInvoiceId:    l.linkedInvoiceId    || null,
+          linkedInvoiceNumber:l.linkedInvoiceNumber|| null,
+          qty:    parseFloat(l.qty)    || 0,
+          debit:  parseFloat(l.debit)  || 0,
           credit: parseFloat(l.credit) || 0,
         })),
         totalAmount: totalDebit,
-        createdAt: new Date().toISOString(),
+        createdAt:   new Date().toISOString(),
       };
       const updated = await saveJournalEntry(biz, entry);
       setBiz(updated);
@@ -243,20 +274,23 @@ export default function JournalEntriesScreen({ route, navigation }) {
   };
 
   const handleDelete = (entryId) => {
-    Alert.alert('Delete Entry', 'This will reverse all balance effects.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive',
-        onPress: async () => {
-          const updated = await deleteJournalEntry(biz, entryId);
-          setBiz(updated);
+    Alert.alert(
+      'Delete Entry',
+      'This will reverse all balance effects.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: async () => {
+            const updated = await deleteJournalEntry(biz, entryId);
+            setBiz(updated);
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
-  // ── Picker — sequential modal pattern ────────────────────────────────────────
-  // Close form → open picker → on select → close picker → reopen form
+  // ── Picker — sequential modal pattern ─────────────────────────────────────
 
   const openAccountPicker = (lineId) => {
     setPickerLineId(lineId);
@@ -265,7 +299,6 @@ export default function JournalEntriesScreen({ route, navigation }) {
     setPickerCustomer(null);
     setPickerSupplier(null);
     setSearchQuery('');
-    // Close form first, then open picker after animation completes
     setShowForm(false);
     setTimeout(() => setShowPicker(true), 400);
   };
@@ -280,9 +313,9 @@ export default function JournalEntriesScreen({ route, navigation }) {
   const selectCategory = (cat) => {
     setPickerCategory(cat);
     setSearchQuery('');
-    if (cat.id === 'customer') setPickerStage(STAGE_CUSTOMERS);
+    if (cat.id === 'customer')      setPickerStage(STAGE_CUSTOMERS);
     else if (cat.id === 'supplier') setPickerStage(STAGE_SUPPLIERS);
-    else setPickerStage(STAGE_ACCOUNTS);
+    else                            setPickerStage(STAGE_ACCOUNTS);
   };
 
   const selectCustomer = (customer) => {
@@ -297,20 +330,24 @@ export default function JournalEntriesScreen({ route, navigation }) {
     setSearchQuery('');
   };
 
-  const applyAccountToLine = (account, invoiceId = null, invoiceNumber = null) => {
+  const applyAccountToLine = (
+    account, invoiceId = null, invoiceNumber = null
+  ) => {
     setLines(prev => prev.map(l => {
       if (l.lineId !== pickerLineId) return l;
       return {
         ...l,
-        accountId: account.id,
-        accountName: account.name,
-        accountCategory: account.category,
-        accountBadgeColor: account.badgeColor,
-        accountBadgeBg: account.badgeBg,
-        accountBadgeLabel: account.badgeLabel,
-        linkedCustomerId: account.category === 'customer' ? account.id : null,
-        linkedSupplierId: account.category === 'supplier' ? account.id : null,
-        linkedInvoiceId: invoiceId || null,
+        accountId:          account.id,
+        accountName:        account.name,
+        accountCategory:    account.category,
+        accountBadgeColor:  account.badgeColor,
+        accountBadgeBg:     account.badgeBg,
+        accountBadgeLabel:  account.badgeLabel,
+        linkedCustomerId:
+          account.category === 'customer' ? account.id : null,
+        linkedSupplierId:
+          account.category === 'supplier' ? account.id : null,
+        linkedInvoiceId:     invoiceId     || null,
         linkedInvoiceNumber: invoiceNumber || null,
       };
     }));
@@ -320,29 +357,39 @@ export default function JournalEntriesScreen({ route, navigation }) {
   const selectFifo = () => {
     if (pickerCustomer) {
       applyAccountToLine({
-        id: pickerCustomer.id, name: pickerCustomer.displayName,
-        category: 'customer', badgeColor: '#854F0B',
-        badgeBg: '#FAEEDA', badgeLabel: 'Customer',
+        id: pickerCustomer.id,
+        name: pickerCustomer.displayName,
+        category: 'customer',
+        badgeColor: '#854F0B',
+        badgeBg: '#FAEEDA',
+        badgeLabel: 'Customer',
       });
     } else if (pickerSupplier) {
       applyAccountToLine({
-        id: pickerSupplier.id, name: pickerSupplier.displayName,
-        category: 'supplier', badgeColor: '#534AB7',
-        badgeBg: '#EEEDFE', badgeLabel: 'Supplier',
+        id: pickerSupplier.id,
+        name: pickerSupplier.displayName,
+        category: 'supplier',
+        badgeColor: '#534AB7',
+        badgeBg: '#EEEDFE',
+        badgeLabel: 'Supplier',
       });
     }
   };
 
   const goBack = () => {
     setSearchQuery('');
-    if (pickerStage === STAGE_ACCOUNTS) setPickerStage(STAGE_CATEGORY);
-    else if (pickerStage === STAGE_CUSTOMERS || pickerStage === STAGE_SUPPLIERS)
+    if (pickerStage === STAGE_ACCOUNTS)
+      setPickerStage(STAGE_CATEGORY);
+    else if (
+      pickerStage === STAGE_CUSTOMERS ||
+      pickerStage === STAGE_SUPPLIERS
+    )
       setPickerStage(STAGE_CATEGORY);
     else if (pickerStage === STAGE_INVOICES)
       setPickerStage(pickerCustomer ? STAGE_CUSTOMERS : STAGE_SUPPLIERS);
   };
 
-  // ── Picker data helpers ───────────────────────────────────────────────────────
+  // ── Guard ─────────────────────────────────────────────────────────────────
 
   if (!biz) return (
     <View style={styles.centered}>
@@ -350,9 +397,12 @@ export default function JournalEntriesScreen({ route, navigation }) {
     </View>
   );
 
-  const allAccounts    = buildAllAccounts(biz);
-  const isSearching    = searchQuery.trim().length > 0 && pickerStage === STAGE_CATEGORY;
-  const searchResults  = isSearching
+  // ── Picker data ───────────────────────────────────────────────────────────
+
+  const allAccounts   = buildAllAccounts(biz);
+  const isSearching   =
+    searchQuery.trim().length > 0 && pickerStage === STAGE_CATEGORY;
+  const searchResults = isSearching
     ? allAccounts.filter(a =>
         a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         a.badgeLabel.toLowerCase().includes(searchQuery.toLowerCase())
@@ -368,39 +418,49 @@ export default function JournalEntriesScreen({ route, navigation }) {
         list = (biz.bankAccounts || []).map(a => ({
           id: a.id, name: a.name, category: 'bank',
           badgeColor: '#185FA5', badgeBg: '#E6F1FB', badgeLabel: 'Bank',
-          sub: `${biz.meta?.currency} ${(a.balance || 0).toLocaleString()}`,
-        })); break;
+          sub: `${biz.meta?.currency || ''} ${(a.balance || 0).toLocaleString()}`,
+        }));
+        break;
       case 'income':
         list = (biz.incomeAccounts || []).map(a => ({
           id: a.id, name: a.name, category: 'income',
           badgeColor: '#0F6E56', badgeBg: '#E1F5EE', badgeLabel: 'Income',
-          sub: `${a.code} · ${a.group}`,
-        })); break;
+          sub: `${a.code || ''} · ${a.group || ''}`,
+        }));
+        break;
       case 'expense':
         list = (biz.expenseAccounts || []).map(a => ({
           id: a.id, name: a.name, category: 'expense',
           badgeColor: '#993C1D', badgeBg: '#FAECE7', badgeLabel: 'Expense',
-          sub: `${a.code} · ${a.group}`,
-        })); break;
+          sub: `${a.code || ''} · ${a.group || ''}`,
+        }));
+        break;
       case 'inventory':
         list = (biz.items || []).map(a => ({
           id: a.id, name: a.name, category: 'inventory',
           badgeColor: '#5F5E5A', badgeBg: '#F1EFE8', badgeLabel: 'Inventory',
-          sub: `Stock: ${a.stock || 0} · Cost: ${biz.meta?.currency} ${(a.costPrice || 0).toLocaleString()}`,
-        })); break;
+          sub: `Stock: ${a.stock || 0} · Cost: ${biz.meta?.currency || ''} ${(a.costPrice || 0).toLocaleString()}`,
+        }));
+        break;
     }
     return q ? list.filter(a => a.name.toLowerCase().includes(q)) : list;
   };
 
   const unpaidSalesInvoices = pickerCustomer
     ? (biz.salesInvoices || [])
-        .filter(i => i.customerId === pickerCustomer.id && getInvoiceStatus(i) !== 'paid')
+        .filter(i =>
+          i.customerId === pickerCustomer.id &&
+          getInvoiceStatus(i) !== 'paid'
+        )
         .sort((a, b) => new Date(a.date) - new Date(b.date))
     : [];
 
   const unpaidPurchaseInvoices = pickerSupplier
     ? (biz.purchaseInvoices || [])
-        .filter(i => i.supplierId === pickerSupplier.id && getInvoiceStatus(i) !== 'paid')
+        .filter(i =>
+          i.supplierId === pickerSupplier.id &&
+          getInvoiceStatus(i) !== 'paid'
+        )
         .sort((a, b) => new Date(a.date) - new Date(b.date))
     : [];
 
@@ -410,7 +470,8 @@ export default function JournalEntriesScreen({ route, navigation }) {
     if (pickerStage === STAGE_CUSTOMERS) return 'Accounts Receivable';
     if (pickerStage === STAGE_SUPPLIERS) return 'Accounts Payable';
     if (pickerStage === STAGE_INVOICES)
-      return pickerCustomer?.displayName || pickerSupplier?.displayName || 'Invoices';
+      return pickerCustomer?.displayName ||
+             pickerSupplier?.displayName || 'Invoices';
     return 'Select Account';
   };
 
@@ -434,77 +495,135 @@ export default function JournalEntriesScreen({ route, navigation }) {
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           <View style={styles.emptyBox}>
-            <Ionicons name="book-outline" size={52} color={colors.textTertiary} />
+            <Ionicons
+              name="book-outline"
+              size={52}
+              color={colors.textTertiary}
+            />
             <Text style={styles.emptyTitle}>No journal entries yet</Text>
-            <Text style={styles.emptySub}>Tap + to create a manual accounting entry</Text>
+            <Text style={styles.emptySub}>
+              Tap + to create a manual accounting entry
+            </Text>
           </View>
         }
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={styles.cardTop}>
-              <View style={styles.cardIcon}>
-                <Text style={styles.cardIconText}>JE</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle} numberOfLines={1}>
-                  {item.description}
-                </Text>
-                <Text style={styles.cardSub}>
-                  {new Date(item.date).toLocaleDateString()} ·{' '}
-                  {item.lines?.length} lines ·{' '}
-                  {cur} {(item.totalAmount || 0).toLocaleString()}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.linesPreview}>
-              {(item.lines || []).map((line, idx) => (
-                <View key={idx} style={styles.previewLine}>
-                  <View style={[styles.drcr, line.debit > 0 ? styles.drBadge : styles.crBadge]}>
-                    <Text style={[styles.drcrText, line.debit > 0 ? styles.drText : styles.crText]}>
-                      {line.debit > 0 ? 'DR' : 'CR'}
-                    </Text>
-                  </View>
-                  <View style={[styles.typeBadge, { backgroundColor: line.accountBadgeBg || '#F1EFE8' }]}>
-                    <Text style={[styles.typeBadgeText, { color: line.accountBadgeColor || '#5F5E5A' }]}>
-                      {line.accountBadgeLabel || '—'}
-                    </Text>
-                  </View>
-                  <Text style={styles.previewAcc} numberOfLines={1}>
-                    {line.accountName}
-                    {line.linkedInvoiceNumber ? ` · INV-${line.linkedInvoiceNumber}` : ''}
+        renderItem={({ item }) => {
+          // Pre-compute amount strings safely to avoid raw values in JSX
+          return (
+            <View style={styles.card}>
+              <View style={styles.cardTop}>
+                <View style={styles.cardIcon}>
+                  <Text style={styles.cardIconText}>JE</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle} numberOfLines={1}>
+                    {item.description}
                   </Text>
-                  <Text style={styles.previewAmt}>
-                    {cur} {(line.debit > 0 ? line.debit : line.credit).toLocaleString()}
+                  <Text style={styles.cardSub}>
+                    {new Date(item.date).toLocaleDateString()}
+                    {' · '}
+                    {String(item.lines?.length || 0)}
+                    {' lines · '}
+                    {cur}
+                    {' '}
+                    {(item.totalAmount || 0).toLocaleString()}
                   </Text>
                 </View>
-              ))}
+              </View>
+
+              <View style={styles.linesPreview}>
+                {(item.lines || []).map((line, idx) => {
+                  const isDebit    = (line.debit || 0) > 0;
+                  const lineAmount = isDebit
+                    ? (line.debit  || 0)
+                    : (line.credit || 0);
+                  const invSuffix = line.linkedInvoiceNumber
+                    ? ` · INV-${line.linkedInvoiceNumber}`
+                    : '';
+                  return (
+                    <View key={String(idx)} style={styles.previewLine}>
+                      <View style={[
+                        styles.drcr,
+                        isDebit ? styles.drBadge : styles.crBadge,
+                      ]}>
+                        <Text style={[
+                          styles.drcrText,
+                          isDebit ? styles.drText : styles.crText,
+                        ]}>
+                          {isDebit ? 'DR' : 'CR'}
+                        </Text>
+                      </View>
+                      <View style={[
+                        styles.typeBadge,
+                        {
+                          backgroundColor:
+                            line.accountBadgeBg || '#F1EFE8',
+                        },
+                      ]}>
+                        <Text style={[
+                          styles.typeBadgeText,
+                          { color: line.accountBadgeColor || '#5F5E5A' },
+                        ]}>
+                          {line.accountBadgeLabel || '—'}
+                        </Text>
+                      </View>
+                      <Text style={styles.previewAcc} numberOfLines={1}>
+                        {(line.accountName || '') + invSuffix}
+                      </Text>
+                      <Text style={styles.previewAmt}>
+                        {cur}{' '}{lineAmount.toLocaleString()}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+
+              <View style={styles.cardActions}>
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() => openEdit(item)}
+                >
+                  <Ionicons
+                    name="create-outline"
+                    size={15}
+                    color={colors.primary}
+                  />
+                  <Text style={styles.actionText}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() => openClone(item)}
+                >
+                  <Ionicons
+                    name="copy-outline"
+                    size={15}
+                    color={colors.primary}
+                  />
+                  <Text style={styles.actionText}>Clone</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, { borderColor: '#FECACA' }]}
+                  onPress={() => handleDelete(item.id)}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={15}
+                    color="#EF4444"
+                  />
+                  <Text style={[styles.actionText, { color: '#EF4444' }]}>
+                    Delete
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <View style={styles.cardActions}>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => openEdit(item)}>
-                <Ionicons name="create-outline" size={15} color={colors.primary} />
-                <Text style={styles.actionText}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => openClone(item)}>
-                <Ionicons name="copy-outline" size={15} color={colors.primary} />
-                <Text style={styles.actionText}>Clone</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionBtn, { borderColor: '#FECACA' }]}
-                onPress={() => handleDelete(item.id)}
-              >
-                <Ionicons name="trash-outline" size={15} color="#EF4444" />
-                <Text style={[styles.actionText, { color: '#EF4444' }]}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
+          );
+        }}
       />
 
       <TouchableOpacity style={styles.fab} onPress={openCreate}>
         <Ionicons name="add" size={30} color="#fff" />
       </TouchableOpacity>
 
-      {/* ── JOURNAL ENTRY FORM ─────────────────────────────────────────────── */}
+      {/* ── JOURNAL ENTRY FORM ──────────────────────────────────────────── */}
       <ModalSheet
         visible={showForm}
         onClose={() => setShowForm(false)}
@@ -536,128 +655,203 @@ export default function JournalEntriesScreen({ route, navigation }) {
 
           <Text style={styles.label}>Journal lines</Text>
 
-          {lines.map((line, idx) => (
-            <View key={line.lineId} style={styles.lineCard}>
-              <View style={styles.lineHeader}>
-                <Text style={styles.lineNum}>Line {idx + 1}</Text>
-                <TouchableOpacity
-                  onPress={() => removeLine(line.lineId)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="close-circle-outline" size={18} color={colors.textTertiary} />
-                </TouchableOpacity>
-              </View>
+          {lines.map((line, idx) => {
+            const debitNum  = parseFloat(line.debit)  || 0;
+            const creditNum = parseFloat(line.credit) || 0;
+            const qtyNum    = parseFloat(line.qty)    || 0;
+            const showQtyHint =
+              line.accountCategory === 'inventory' &&
+              qtyNum > 0 &&
+              debitNum > 0;
+            const unitCostStr = showQtyHint
+              ? (debitNum / qtyNum).toFixed(2)
+              : '';
 
-              {/* Account button — opens picker sequentially */}
-              <TouchableOpacity
-                style={styles.accountBtn}
-                onPress={() => openAccountPicker(line.lineId)}
+            return (
+              <View
+                key={line.lineId || String(idx)}
+                style={styles.lineCard}
               >
-                {line.accountId ? (
-                  <View style={styles.accountSelected}>
-                    <View style={[styles.accountBadge, { backgroundColor: line.accountBadgeBg }]}>
-                      <Text style={[styles.accountBadgeText, { color: line.accountBadgeColor }]}>
-                        {line.accountBadgeLabel}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.accountName} numberOfLines={1}>
-                        {line.accountName}
-                      </Text>
-                      {line.linkedInvoiceNumber ? (
-                        <Text style={styles.accountSub}>
-                          Invoice INV-{line.linkedInvoiceNumber}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
-                ) : (
-                  <Text style={styles.accountPlaceholder}>
-                    Tap to select account...
-                  </Text>
-                )}
-                <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
-              </TouchableOpacity>
-
-              {/* Debit / Credit */}
-              <View style={styles.drcrRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.drLabel}>Debit</Text>
-                  <TextInput
-                    style={[styles.amtInput, parseFloat(line.debit) > 0 && styles.amtInputDr]}
-                    value={line.debit}
-                    onChangeText={v => {
-                      updateLine(line.lineId, 'debit', v);
-                      if (v) updateLine(line.lineId, 'credit', '');
-                    }}
-                    placeholder="0"
-                    placeholderTextColor={colors.textTertiary}
-                    keyboardType="numeric"
-                  />
+                <View style={styles.lineHeader}>
+                  <Text style={styles.lineNum}>Line {idx + 1}</Text>
+                  <TouchableOpacity
+                    onPress={() => removeLine(line.lineId)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons
+                      name="close-circle-outline"
+                      size={18}
+                      color={colors.textTertiary}
+                    />
+                  </TouchableOpacity>
                 </View>
-                <Text style={styles.orText}>or</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.crLabel}>Credit</Text>
-                  <TextInput
-                    style={[styles.amtInput, parseFloat(line.credit) > 0 && styles.amtInputCr]}
-                    value={line.credit}
-                    onChangeText={v => {
-                      updateLine(line.lineId, 'credit', v);
-                      if (v) updateLine(line.lineId, 'debit', '');
-                    }}
-                    placeholder="0"
-                    placeholderTextColor={colors.textTertiary}
-                    keyboardType="numeric"
+
+                {/* Account picker button */}
+                <TouchableOpacity
+                  style={styles.accountBtn}
+                  onPress={() => openAccountPicker(line.lineId)}
+                >
+                  {line.accountId ? (
+                    <View style={styles.accountSelected}>
+                      <View style={[
+                        styles.accountBadge,
+                        { backgroundColor: line.accountBadgeBg || '#F1EFE8' },
+                      ]}>
+                        <Text style={[
+                          styles.accountBadgeText,
+                          { color: line.accountBadgeColor || '#5F5E5A' },
+                        ]}>
+                          {line.accountBadgeLabel || ''}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.accountName} numberOfLines={1}>
+                          {line.accountName || ''}
+                        </Text>
+                        {line.linkedInvoiceNumber ? (
+                          <Text style={styles.accountSub}>
+                            {'Invoice INV-' + line.linkedInvoiceNumber}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={styles.accountPlaceholder}>
+                      Tap to select account...
+                    </Text>
+                  )}
+                  <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={colors.textTertiary}
                   />
+                </TouchableOpacity>
+
+                {/* Qty field — inventory only */}
+                {line.accountCategory === 'inventory' ? (
+                  <View style={styles.qtyRow}>
+                    <TextInput
+                      style={styles.qtyInput}
+                      value={line.qty || ''}
+                      onChangeText={v =>
+                        updateLine(line.lineId, 'qty', v)
+                      }
+                      placeholder="Qty — leave blank for cost adjustment only"
+                      placeholderTextColor={colors.textTertiary}
+                      keyboardType="numeric"
+                    />
+                    {showQtyHint ? (
+                      <Text style={styles.qtyHint}>
+                        {'Unit cost: ' + cur + ' ' + unitCostStr}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {/* Debit / Credit */}
+                <View style={styles.drcrRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.drLabel}>Debit</Text>
+                    <TextInput
+                      style={[
+                        styles.amtInput,
+                        debitNum > 0 && styles.amtInputDr,
+                      ]}
+                      value={line.debit || ''}
+                      onChangeText={v => {
+                        updateLine(line.lineId, 'debit', v);
+                        if (v) updateLine(line.lineId, 'credit', '');
+                      }}
+                      placeholder="0"
+                      placeholderTextColor={colors.textTertiary}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                  <Text style={styles.orText}>or</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.crLabel}>Credit</Text>
+                    <TextInput
+                      style={[
+                        styles.amtInput,
+                        creditNum > 0 && styles.amtInputCr,
+                      ]}
+                      value={line.credit || ''}
+                      onChangeText={v => {
+                        updateLine(line.lineId, 'credit', v);
+                        if (v) updateLine(line.lineId, 'debit', '');
+                      }}
+                      placeholder="0"
+                      placeholderTextColor={colors.textTertiary}
+                      keyboardType="numeric"
+                    />
+                  </View>
                 </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
 
           <TouchableOpacity style={styles.addLineBtn} onPress={addLine}>
-            <Ionicons name="add-circle-outline" size={20} color="#8B5CF6" />
+            <Ionicons
+              name="add-circle-outline"
+              size={20}
+              color="#8B5CF6"
+            />
             <Text style={styles.addLineBtnText}>Add another line</Text>
           </TouchableOpacity>
 
           {/* Balance box */}
-          <View style={[styles.balanceBox, isBalanced ? styles.balanceOk : styles.balanceWarn]}>
+          <View style={[
+            styles.balanceBox,
+            isBalanced ? styles.balanceOk : styles.balanceWarn,
+          ]}>
             <View style={styles.balanceRow}>
               <Text style={styles.balanceLbl}>Total debits</Text>
-              <Text style={styles.balanceDr}>{cur} {totalDebit.toLocaleString()}</Text>
+              <Text style={styles.balanceDr}>
+                {cur + ' ' + totalDebit.toLocaleString()}
+              </Text>
             </View>
             <View style={styles.balanceRow}>
               <Text style={styles.balanceLbl}>Total credits</Text>
-              <Text style={styles.balanceCr}>{cur} {totalCredit.toLocaleString()}</Text>
+              <Text style={styles.balanceCr}>
+                {cur + ' ' + totalCredit.toLocaleString()}
+              </Text>
             </View>
             <View style={styles.balanceDivider} />
             <View style={styles.balanceRow}>
               <Text style={styles.balanceLbl}>Status</Text>
               <Text style={[
                 styles.balanceStatus,
-                isBalanced ? styles.balanceStatusOk : styles.balanceStatusWarn,
+                isBalanced
+                  ? styles.balanceStatusOk
+                  : styles.balanceStatusWarn,
               ]}>
                 {isBalanced
                   ? '✓ Balanced — ready to post'
-                  : `Difference: ${cur} ${Math.abs(totalDebit - totalCredit).toLocaleString()}`}
+                  : 'Difference: ' + cur + ' ' +
+                    Math.abs(totalDebit - totalCredit).toLocaleString()}
               </Text>
             </View>
           </View>
         </ScrollView>
       </ModalSheet>
 
-      {/* ── ACCOUNT PICKER ─────────────────────────────────────────────────── */}
+      {/* ── ACCOUNT PICKER ──────────────────────────────────────────────── */}
       <ModalSheet
         visible={showPicker}
         onClose={() => closePicker(true)}
         title={getPickerTitle()}
       >
-        {/* Search — shown on category and list stages */}
+        {/* Search bar */}
         {(pickerStage === STAGE_CATEGORY ||
           pickerStage === STAGE_ACCOUNTS ||
           pickerStage === STAGE_CUSTOMERS ||
-          pickerStage === STAGE_SUPPLIERS) && (
+          pickerStage === STAGE_SUPPLIERS) ? (
           <View style={styles.searchWrap}>
-            <Ionicons name="search-outline" size={16} color={colors.textTertiary} />
+            <Ionicons
+              name="search-outline"
+              size={16}
+              color={colors.textTertiary}
+            />
             <TextInput
               style={styles.searchInput}
               value={searchQuery}
@@ -669,24 +863,32 @@ export default function JournalEntriesScreen({ route, navigation }) {
               }
               placeholderTextColor={colors.textTertiary}
             />
-            {searchQuery.length > 0 && (
+            {searchQuery.length > 0 ? (
               <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={16} color={colors.textTertiary} />
+                <Ionicons
+                  name="close-circle"
+                  size={16}
+                  color={colors.textTertiary}
+                />
               </TouchableOpacity>
-            )}
+            ) : null}
           </View>
-        )}
+        ) : null}
 
         {/* Back button */}
-        {pickerStage !== STAGE_CATEGORY && (
+        {pickerStage !== STAGE_CATEGORY ? (
           <TouchableOpacity style={styles.backBtn} onPress={goBack}>
-            <Ionicons name="arrow-back" size={18} color={colors.primary} />
+            <Ionicons
+              name="arrow-back"
+              size={18}
+              color={colors.primary}
+            />
             <Text style={styles.backBtnText}>Back</Text>
           </TouchableOpacity>
-        )}
+        ) : null}
 
-        {/* ── Category list or global search ── */}
-        {pickerStage === STAGE_CATEGORY && (
+        {/* Category list or global search results */}
+        {pickerStage === STAGE_CATEGORY ? (
           <FlatList
             data={isSearching ? searchResults : CATEGORIES}
             keyExtractor={(item, idx) => item.id || String(idx)}
@@ -701,173 +903,308 @@ export default function JournalEntriesScreen({ route, navigation }) {
                     style={styles.accItem}
                     onPress={() => {
                       if (item.category === 'customer') {
-                        const cust = biz.customers?.find(c => c.id === item.id);
-                        if (cust) { setPickerCategory(CATEGORIES.find(c => c.id === 'customer')); selectCustomer(cust); }
+                        const cust = biz.customers?.find(
+                          c => c.id === item.id
+                        );
+                        if (cust) {
+                          setPickerCategory(
+                            CATEGORIES.find(c => c.id === 'customer')
+                          );
+                          selectCustomer(cust);
+                        }
                       } else if (item.category === 'supplier') {
-                        const sup = biz.suppliers?.find(s => s.id === item.id);
-                        if (sup) { setPickerCategory(CATEGORIES.find(c => c.id === 'supplier')); selectSupplier(sup); }
+                        const sup = biz.suppliers?.find(
+                          s => s.id === item.id
+                        );
+                        if (sup) {
+                          setPickerCategory(
+                            CATEGORIES.find(c => c.id === 'supplier')
+                          );
+                          selectSupplier(sup);
+                        }
                       } else {
                         applyAccountToLine(item);
                       }
                     }}
                   >
-                    <View style={[styles.accBadge, { backgroundColor: item.badgeBg }]}>
-                      <Text style={[styles.accBadgeText, { color: item.badgeColor }]}>
+                    <View style={[
+                      styles.accBadge,
+                      { backgroundColor: item.badgeBg },
+                    ]}>
+                      <Text style={[
+                        styles.accBadgeText,
+                        { color: item.badgeColor },
+                      ]}>
                         {item.badgeLabel}
                       </Text>
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.accName}>{item.name}</Text>
-                      {item.sub ? <Text style={styles.accSub}>{item.sub}</Text> : null}
+                      {item.sub ? (
+                        <Text style={styles.accSub}>{item.sub}</Text>
+                      ) : null}
                     </View>
-                    <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color={colors.textTertiary}
+                    />
                   </TouchableOpacity>
                 );
               }
               return (
-                <TouchableOpacity style={styles.catItem} onPress={() => selectCategory(item)}>
-                  <View style={[styles.catIcon, { backgroundColor: item.badgeBg }]}>
-                    <Text style={[styles.catInitial, { color: item.badgeColor }]}>
+                <TouchableOpacity
+                  style={styles.catItem}
+                  onPress={() => selectCategory(item)}
+                >
+                  <View style={[
+                    styles.catIcon,
+                    { backgroundColor: item.badgeBg },
+                  ]}>
+                    <Text style={[
+                      styles.catInitial,
+                      { color: item.badgeColor },
+                    ]}>
                       {item.initial}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.catName}>{item.label}</Text>
-                    <Text style={styles.catSub}>{item.sub(biz)}</Text>
+                    <Text style={styles.catSub}>
+                      {item.sub(biz) || ''}
+                    </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={colors.textTertiary}
+                  />
                 </TouchableOpacity>
               );
             }}
           />
-        )}
+        ) : null}
 
-        {/* ── Account list within category ── */}
-        {pickerStage === STAGE_ACCOUNTS && (
+        {/* Account list within category */}
+        {pickerStage === STAGE_ACCOUNTS ? (
           <FlatList
             data={getCategoryAccounts()}
             keyExtractor={a => a.id}
             keyboardShouldPersistTaps="handled"
-            ListEmptyComponent={<Text style={styles.emptyPicker}>No accounts found.</Text>}
+            ListEmptyComponent={
+              <Text style={styles.emptyPicker}>No accounts found.</Text>
+            }
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.accItem} onPress={() => applyAccountToLine(item)}>
-                <View style={[styles.accBadge, { backgroundColor: item.badgeBg }]}>
-                  <Text style={[styles.accBadgeText, { color: item.badgeColor }]}>
+              <TouchableOpacity
+                style={styles.accItem}
+                onPress={() => applyAccountToLine(item)}
+              >
+                <View style={[
+                  styles.accBadge,
+                  { backgroundColor: item.badgeBg },
+                ]}>
+                  <Text style={[
+                    styles.accBadgeText,
+                    { color: item.badgeColor },
+                  ]}>
                     {item.badgeLabel}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.accName}>{item.name}</Text>
-                  {item.sub ? <Text style={styles.accSub}>{item.sub}</Text> : null}
+                  {item.sub ? (
+                    <Text style={styles.accSub}>{item.sub}</Text>
+                  ) : null}
                 </View>
-                <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color={colors.textTertiary}
+                />
               </TouchableOpacity>
             )}
           />
-        )}
+        ) : null}
 
-        {/* ── Customer list ── */}
-        {pickerStage === STAGE_CUSTOMERS && (
+        {/* Customer list */}
+        {pickerStage === STAGE_CUSTOMERS ? (
           <FlatList
             data={(biz.customers || []).filter(c =>
               !searchQuery ||
-              c.displayName.toLowerCase().includes(searchQuery.toLowerCase())
+              c.displayName.toLowerCase().includes(
+                searchQuery.toLowerCase()
+              )
             )}
             keyExtractor={c => c.id}
             keyboardShouldPersistTaps="handled"
-            ListEmptyComponent={<Text style={styles.emptyPicker}>No customers found.</Text>}
+            ListEmptyComponent={
+              <Text style={styles.emptyPicker}>No customers found.</Text>
+            }
             renderItem={({ item }) => {
               const unpaid = (biz.salesInvoices || []).filter(
-                i => i.customerId === item.id && getInvoiceStatus(i) !== 'paid'
+                i =>
+                  i.customerId === item.id &&
+                  getInvoiceStatus(i) !== 'paid'
               );
-              const balance = unpaid.reduce((s, i) => s + (i.total - (i.amountPaid || 0)), 0);
+              const balance = unpaid.reduce(
+                (s, i) => s + (i.total - (i.amountPaid || 0)), 0
+              );
               return (
-                <TouchableOpacity style={styles.partyItem} onPress={() => selectCustomer(item)}>
-                  <View style={[styles.partyAvatar, { backgroundColor: '#FAEEDA' }]}>
-                    <Text style={[styles.partyAvatarText, { color: '#854F0B' }]}>
+                <TouchableOpacity
+                  style={styles.partyItem}
+                  onPress={() => selectCustomer(item)}
+                >
+                  <View style={[
+                    styles.partyAvatar,
+                    { backgroundColor: '#FAEEDA' },
+                  ]}>
+                    <Text style={[
+                      styles.partyAvatarText,
+                      { color: '#854F0B' },
+                    ]}>
                       {(item.displayName || '?')[0].toUpperCase()}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.partyName}>{item.displayName}</Text>
+                    <Text style={styles.partyName}>
+                      {item.displayName}
+                    </Text>
                     <Text style={styles.partySub}>
-                      {unpaid.length} unpaid invoice{unpaid.length !== 1 ? 's' : ''}
+                      {String(unpaid.length)}
+                      {unpaid.length !== 1
+                        ? ' unpaid invoices'
+                        : ' unpaid invoice'}
                     </Text>
                   </View>
-                  {balance > 0 && (
-                    <Text style={[styles.partyBalance, { color: '#DC2626' }]}>
-                      {cur} {balance.toLocaleString()}
+                  {balance > 0 ? (
+                    <Text style={[
+                      styles.partyBalance,
+                      { color: '#DC2626' },
+                    ]}>
+                      {cur + ' ' + balance.toLocaleString()}
                     </Text>
-                  )}
-                  <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+                  ) : null}
+                  <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={colors.textTertiary}
+                  />
                 </TouchableOpacity>
               );
             }}
           />
-        )}
+        ) : null}
 
-        {/* ── Supplier list ── */}
-        {pickerStage === STAGE_SUPPLIERS && (
+        {/* Supplier list */}
+        {pickerStage === STAGE_SUPPLIERS ? (
           <FlatList
             data={(biz.suppliers || []).filter(s =>
               !searchQuery ||
-              s.displayName.toLowerCase().includes(searchQuery.toLowerCase())
+              s.displayName.toLowerCase().includes(
+                searchQuery.toLowerCase()
+              )
             )}
             keyExtractor={s => s.id}
             keyboardShouldPersistTaps="handled"
-            ListEmptyComponent={<Text style={styles.emptyPicker}>No suppliers found.</Text>}
+            ListEmptyComponent={
+              <Text style={styles.emptyPicker}>No suppliers found.</Text>
+            }
             renderItem={({ item }) => {
               const unpaid = (biz.purchaseInvoices || []).filter(
-                i => i.supplierId === item.id && getInvoiceStatus(i) !== 'paid'
+                i =>
+                  i.supplierId === item.id &&
+                  getInvoiceStatus(i) !== 'paid'
               );
-              const balance = unpaid.reduce((s, i) => s + (i.total - (i.amountPaid || 0)), 0);
+              const balance = unpaid.reduce(
+                (s, i) => s + (i.total - (i.amountPaid || 0)), 0
+              );
               return (
-                <TouchableOpacity style={styles.partyItem} onPress={() => selectSupplier(item)}>
-                  <View style={[styles.partyAvatar, { backgroundColor: '#EEEDFE' }]}>
-                    <Text style={[styles.partyAvatarText, { color: '#534AB7' }]}>
+                <TouchableOpacity
+                  style={styles.partyItem}
+                  onPress={() => selectSupplier(item)}
+                >
+                  <View style={[
+                    styles.partyAvatar,
+                    { backgroundColor: '#EEEDFE' },
+                  ]}>
+                    <Text style={[
+                      styles.partyAvatarText,
+                      { color: '#534AB7' },
+                    ]}>
                       {(item.displayName || '?')[0].toUpperCase()}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.partyName}>{item.displayName}</Text>
+                    <Text style={styles.partyName}>
+                      {item.displayName}
+                    </Text>
                     <Text style={styles.partySub}>
-                      {unpaid.length} unpaid bill{unpaid.length !== 1 ? 's' : ''}
+                      {String(unpaid.length)}
+                      {unpaid.length !== 1
+                        ? ' unpaid bills'
+                        : ' unpaid bill'}
                     </Text>
                   </View>
-                  {balance > 0 && (
-                    <Text style={[styles.partyBalance, { color: '#534AB7' }]}>
-                      {cur} {balance.toLocaleString()}
+                  {balance > 0 ? (
+                    <Text style={[
+                      styles.partyBalance,
+                      { color: '#534AB7' },
+                    ]}>
+                      {cur + ' ' + balance.toLocaleString()}
                     </Text>
-                  )}
-                  <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+                  ) : null}
+                  <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={colors.textTertiary}
+                  />
                 </TouchableOpacity>
               );
             }}
           />
-        )}
+        ) : null}
 
-        {/* ── Invoice picker ── */}
-        {pickerStage === STAGE_INVOICES && (
+        {/* Invoice picker */}
+        {pickerStage === STAGE_INVOICES ? (
           <FlatList
             data={[
               { _fifo: true },
-              ...(pickerCustomer ? unpaidSalesInvoices : unpaidPurchaseInvoices),
+              ...(pickerCustomer
+                ? unpaidSalesInvoices
+                : unpaidPurchaseInvoices),
             ]}
-            keyExtractor={(item, idx) => item._fifo ? 'fifo' : item.id}
+            keyExtractor={(item, idx) =>
+              item._fifo ? 'fifo' : item.id
+            }
             keyboardShouldPersistTaps="handled"
-            ListEmptyComponent={<Text style={styles.emptyPicker}>No unpaid invoices.</Text>}
+            ListEmptyComponent={
+              <Text style={styles.emptyPicker}>
+                No unpaid invoices.
+              </Text>
+            }
             renderItem={({ item }) => {
               if (item._fifo) {
                 return (
-                  <TouchableOpacity style={styles.fifoItem} onPress={selectFifo}>
+                  <TouchableOpacity
+                    style={styles.fifoItem}
+                    onPress={selectFifo}
+                  >
                     <View style={styles.fifoBadge}>
                       <Text style={styles.fifoBadgeText}>AUTO</Text>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.fifoTitle}>FIFO — apply to all invoices</Text>
-                      <Text style={styles.fifoSub}>Oldest unpaid invoice gets credit first</Text>
+                      <Text style={styles.fifoTitle}>
+                        FIFO — apply to all invoices
+                      </Text>
+                      <Text style={styles.fifoSub}>
+                        Oldest unpaid invoice gets credit first
+                      </Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={16} color="#185FA5" />
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color="#185FA5"
+                    />
                   </TouchableOpacity>
                 );
               }
@@ -882,10 +1219,14 @@ export default function JournalEntriesScreen({ route, navigation }) {
                     {
                       id: party.id,
                       name: party.displayName,
-                      category: pickerCustomer ? 'customer' : 'supplier',
-                      badgeColor: pickerCustomer ? '#854F0B' : '#534AB7',
-                      badgeBg: pickerCustomer ? '#FAEEDA' : '#EEEDFE',
-                      badgeLabel: pickerCustomer ? 'Customer' : 'Supplier',
+                      category: pickerCustomer
+                        ? 'customer' : 'supplier',
+                      badgeColor: pickerCustomer
+                        ? '#854F0B' : '#534AB7',
+                      badgeBg: pickerCustomer
+                        ? '#FAEEDA' : '#EEEDFE',
+                      badgeLabel: pickerCustomer
+                        ? 'Customer' : 'Supplier',
                     },
                     item.id,
                     item.number
@@ -893,79 +1234,134 @@ export default function JournalEntriesScreen({ route, navigation }) {
                 >
                   <View style={{ flex: 1 }}>
                     <View style={styles.invoiceTop}>
-                      <Text style={styles.invoiceNum}>{prefix}-{item.number}</Text>
+                      <Text style={styles.invoiceNum}>
+                        {prefix + '-' + item.number}
+                      </Text>
                       <View style={[
                         styles.statusBadge,
-                        status === 'partial' ? styles.statusPartial : styles.statusDue,
+                        status === 'partial'
+                          ? styles.statusPartial
+                          : styles.statusDue,
                       ]}>
                         <Text style={[
                           styles.statusText,
-                          status === 'partial' ? styles.statusTextPartial : styles.statusTextDue,
+                          status === 'partial'
+                            ? styles.statusTextPartial
+                            : styles.statusTextDue,
                         ]}>
                           {status === 'partial' ? 'Partial' : 'Due'}
                         </Text>
                       </View>
                     </View>
                     <Text style={styles.invoiceSub}>
-                      {new Date(item.date).toLocaleDateString()} ·
-                      Total: {cur} {item.total?.toLocaleString()}
+                      {new Date(item.date).toLocaleDateString()}
+                      {' · Total: '}
+                      {cur}
+                      {' '}
+                      {(item.total || 0).toLocaleString()}
                     </Text>
                     <Text style={styles.invoiceBalance}>
-                      Balance: {cur} {balance.toLocaleString()}
+                      {'Balance: ' + cur + ' ' + balance.toLocaleString()}
                     </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+                  <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={colors.textTertiary}
+                  />
                 </TouchableOpacity>
               );
             }}
           />
-        )}
+        ) : null}
       </ModalSheet>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container:   { flex: 1, backgroundColor: colors.background },
-  centered:    { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  container:    { flex: 1, backgroundColor: colors.background },
+  centered:     { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 14,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
-  list: { padding: 12, gap: 10, paddingBottom: 100 },
+  list:  { padding: 12, gap: 10, paddingBottom: 100 },
   card: {
     backgroundColor: '#fff', borderRadius: 14, padding: 14,
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+    shadowColor: '#000', shadowOpacity: 0.04,
+    shadowRadius: 6, elevation: 1,
   },
-  cardTop:     { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
-  cardIcon:    { width: 44, height: 44, borderRadius: 12, backgroundColor: '#F5F3FF', justifyContent: 'center', alignItems: 'center' },
-  cardIconText:{ fontSize: 13, fontWeight: '700', color: '#534AB7' },
-  cardTitle:   { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  cardSub:     { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  linesPreview:{ backgroundColor: colors.background, borderRadius: 10, padding: 10, gap: 6, marginBottom: 10 },
-  previewLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  drcr:        { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2, flexShrink: 0 },
-  drBadge:     { backgroundColor: '#FEE2E2' },
-  crBadge:     { backgroundColor: '#DCFCE7' },
-  drcrText:    { fontSize: 10, fontWeight: '700' },
-  drText:      { color: '#DC2626' },
-  crText:      { color: '#16A34A' },
-  typeBadge:   { paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, flexShrink: 0 },
-  typeBadgeText:{ fontSize: 10, fontWeight: '700' },
-  previewAcc:  { flex: 1, fontSize: 12, color: colors.textSecondary },
-  previewAmt:  { fontSize: 12, fontWeight: '600', color: colors.textPrimary, flexShrink: 0 },
-  cardActions: { flexDirection: 'row', gap: 6, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 },
-  actionBtn:   { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: colors.border },
-  actionText:  { fontSize: 12, fontWeight: '600', color: colors.primary },
-  emptyBox:    { alignItems: 'center', paddingTop: 80, gap: 10, paddingHorizontal: 40 },
-  emptyTitle:  { fontSize: 17, fontWeight: '600', color: colors.textSecondary },
-  emptySub:    { fontSize: 13, color: colors.textTertiary, textAlign: 'center' },
+  cardTop: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 12, marginBottom: 10,
+  },
+  cardIcon: {
+    width: 44, height: 44, borderRadius: 12,
+    backgroundColor: '#F5F3FF',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  cardIconText: { fontSize: 13, fontWeight: '700', color: '#534AB7' },
+  cardTitle: {
+    fontSize: 15, fontWeight: '600', color: colors.textPrimary,
+  },
+  cardSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  linesPreview: {
+    backgroundColor: colors.background, borderRadius: 10,
+    padding: 10, gap: 6, marginBottom: 10,
+  },
+  previewLine: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+  },
+  drcr: {
+    borderRadius: 4, paddingHorizontal: 5,
+    paddingVertical: 2, flexShrink: 0,
+  },
+  drBadge:   { backgroundColor: '#FEE2E2' },
+  crBadge:   { backgroundColor: '#DCFCE7' },
+  drcrText:  { fontSize: 10, fontWeight: '700' },
+  drText:    { color: '#DC2626' },
+  crText:    { color: '#16A34A' },
+  typeBadge: {
+    paddingHorizontal: 5, paddingVertical: 2,
+    borderRadius: 4, flexShrink: 0,
+  },
+  typeBadgeText: { fontSize: 10, fontWeight: '700' },
+  previewAcc: {
+    flex: 1, fontSize: 12, color: colors.textSecondary,
+  },
+  previewAmt: {
+    fontSize: 12, fontWeight: '600',
+    color: colors.textPrimary, flexShrink: 0,
+  },
+  cardActions: {
+    flexDirection: 'row', gap: 6,
+    borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10,
+  },
+  actionBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 4, paddingVertical: 7,
+    borderRadius: 8, borderWidth: 1, borderColor: colors.border,
+  },
+  actionText: { fontSize: 12, fontWeight: '600', color: colors.primary },
+  emptyBox: {
+    alignItems: 'center', paddingTop: 80,
+    gap: 10, paddingHorizontal: 40,
+  },
+  emptyTitle: {
+    fontSize: 17, fontWeight: '600', color: colors.textSecondary,
+  },
+  emptySub: {
+    fontSize: 13, color: colors.textTertiary, textAlign: 'center',
+  },
   fab: {
     position: 'absolute', bottom: 28, right: 20,
-    backgroundColor: '#8B5CF6', width: 58, height: 58, borderRadius: 29,
-    justifyContent: 'center', alignItems: 'center',
+    backgroundColor: '#8B5CF6', width: 58, height: 58,
+    borderRadius: 29, justifyContent: 'center', alignItems: 'center',
     shadowColor: '#8B5CF6', shadowOpacity: 0.4, shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 }, elevation: 8,
   },
@@ -974,79 +1370,199 @@ const styles = StyleSheet.create({
   formContent: { padding: 16, paddingBottom: 48 },
   label: {
     fontSize: 12, fontWeight: '700', color: colors.textSecondary,
-    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8, marginTop: 16,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+    marginBottom: 8, marginTop: 16,
   },
   input: {
     borderWidth: 1.5, borderColor: colors.border, borderRadius: 11,
-    paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, color: colors.textPrimary,
+    paddingHorizontal: 14, paddingVertical: 13,
+    fontSize: 15, color: colors.textPrimary,
   },
-  lineCard:    { borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, marginBottom: 10, backgroundColor: colors.background },
-  lineHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  lineNum:     { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
-  accountBtn:  { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 9, borderWidth: 1.5, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 11, marginBottom: 10 },
-  accountSelected: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  accountBadge:    { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
-  accountBadgeText:{ fontSize: 10, fontWeight: '700' },
-  accountName:     { fontSize: 14, fontWeight: '500', color: colors.textPrimary },
-  accountSub:      { fontSize: 11, color: colors.textSecondary, marginTop: 1 },
-  accountPlaceholder: { flex: 1, fontSize: 14, color: colors.textTertiary },
-  drcrRow:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  drLabel:     { fontSize: 10, fontWeight: '700', color: '#DC2626', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 },
-  crLabel:     { fontSize: 10, fontWeight: '700', color: '#16A34A', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 },
-  amtInput:    { borderWidth: 1.5, borderColor: colors.border, borderRadius: 9, paddingHorizontal: 11, paddingVertical: 10, fontSize: 15, fontWeight: '600', color: colors.textPrimary, backgroundColor: '#fff' },
-  amtInputDr:  { borderColor: '#FECACA', backgroundColor: '#FFF5F5', color: '#DC2626' },
-  amtInputCr:  { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4', color: '#16A34A' },
-  orText:      { fontSize: 11, color: colors.textTertiary, paddingBottom: 2 },
-  addLineBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12 },
+  qtyRow:    { marginBottom: 8 },
+  qtyInput: {
+    borderWidth: 1.5, borderColor: '#E9D5FF', borderRadius: 9,
+    paddingHorizontal: 11, paddingVertical: 9,
+    fontSize: 14, color: colors.textPrimary,
+    backgroundColor: '#FAF5FF',
+  },
+  qtyHint: { fontSize: 11, color: '#8B5CF6', marginTop: 3, marginLeft: 2 },
+  lineCard: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: 12,
+    padding: 12, marginBottom: 10, backgroundColor: colors.background,
+  },
+  lineHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 10,
+  },
+  lineNum: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
+  accountBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#fff', borderRadius: 9,
+    borderWidth: 1.5, borderColor: colors.border,
+    paddingHorizontal: 12, paddingVertical: 11, marginBottom: 10,
+  },
+  accountSelected: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
+  },
+  accountBadge: {
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6,
+  },
+  accountBadgeText: { fontSize: 10, fontWeight: '700' },
+  accountName: {
+    fontSize: 14, fontWeight: '500', color: colors.textPrimary,
+  },
+  accountSub: {
+    fontSize: 11, color: colors.textSecondary, marginTop: 1,
+  },
+  accountPlaceholder: {
+    flex: 1, fontSize: 14, color: colors.textTertiary,
+  },
+  drcrRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  drLabel: {
+    fontSize: 10, fontWeight: '700', color: '#DC2626',
+    textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4,
+  },
+  crLabel: {
+    fontSize: 10, fontWeight: '700', color: '#16A34A',
+    textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4,
+  },
+  amtInput: {
+    borderWidth: 1.5, borderColor: colors.border, borderRadius: 9,
+    paddingHorizontal: 11, paddingVertical: 10,
+    fontSize: 15, fontWeight: '600',
+    color: colors.textPrimary, backgroundColor: '#fff',
+  },
+  amtInputDr: {
+    borderColor: '#FECACA', backgroundColor: '#FFF5F5',
+    color: '#DC2626',
+  },
+  amtInputCr: {
+    borderColor: '#BBF7D0', backgroundColor: '#F0FDF4',
+    color: '#16A34A',
+  },
+  orText: {
+    fontSize: 11, color: colors.textTertiary, paddingBottom: 2,
+  },
+  addLineBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 8, paddingVertical: 12,
+  },
   addLineBtnText: { fontSize: 15, color: '#8B5CF6', fontWeight: '600' },
-  balanceBox:  { borderRadius: 12, padding: 14, marginTop: 8, borderWidth: 1 },
+  balanceBox: {
+    borderRadius: 12, padding: 14, marginTop: 8, borderWidth: 1,
+  },
   balanceOk:   { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
   balanceWarn: { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' },
-  balanceRow:  { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
-  balanceLbl:  { fontSize: 13, color: colors.textSecondary },
-  balanceDr:   { fontSize: 13, fontWeight: '600', color: '#DC2626' },
-  balanceCr:   { fontSize: 13, fontWeight: '600', color: '#16A34A' },
-  balanceDivider: { height: 1, backgroundColor: colors.border, marginVertical: 6 },
-  balanceStatus:  { fontSize: 13, fontWeight: '700' },
+  balanceRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  balanceLbl:    { fontSize: 13, color: colors.textSecondary },
+  balanceDr:     { fontSize: 13, fontWeight: '600', color: '#DC2626' },
+  balanceCr:     { fontSize: 13, fontWeight: '600', color: '#16A34A' },
+  balanceDivider:{
+    height: 1, backgroundColor: colors.border, marginVertical: 6,
+  },
+  balanceStatus:     { fontSize: 13, fontWeight: '700' },
   balanceStatusOk:   { color: '#16A34A' },
   balanceStatusWarn: { color: '#EA580C' },
 
   // Picker
-  searchWrap:  { flexDirection: 'row', alignItems: 'center', gap: 10, margin: 12, padding: 10, borderRadius: 10, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.background },
-  searchInput: { flex: 1, fontSize: 15, color: colors.textPrimary, paddingVertical: 0 },
-  backBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  searchWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    margin: 12, padding: 10, borderRadius: 10,
+    borderWidth: 1.5, borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  searchInput: {
+    flex: 1, fontSize: 15,
+    color: colors.textPrimary, paddingVertical: 0,
+  },
+  backBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
   backBtnText: { fontSize: 15, color: colors.primary, fontWeight: '500' },
-  catItem:     { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
-  catIcon:     { width: 42, height: 42, borderRadius: 11, justifyContent: 'center', alignItems: 'center' },
-  catInitial:  { fontSize: 12, fontWeight: '700' },
-  catName:     { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  catSub:      { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  accItem:     { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
-  accBadge:    { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  accBadgeText:{ fontSize: 11, fontWeight: '700' },
-  accName:     { fontSize: 15, fontWeight: '500', color: colors.textPrimary },
-  accSub:      { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  partyItem:   { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
-  partyAvatar: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center' },
+  catItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    padding: 14,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  catIcon: {
+    width: 42, height: 42, borderRadius: 11,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  catInitial: { fontSize: 12, fontWeight: '700' },
+  catName: {
+    fontSize: 15, fontWeight: '600', color: colors.textPrimary,
+  },
+  catSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  accItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: 14,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  accBadge:     { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  accBadgeText: { fontSize: 11, fontWeight: '700' },
+  accName: {
+    fontSize: 15, fontWeight: '500', color: colors.textPrimary,
+  },
+  accSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  partyItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    padding: 14,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  partyAvatar: {
+    width: 38, height: 38, borderRadius: 19,
+    justifyContent: 'center', alignItems: 'center',
+  },
   partyAvatarText: { fontSize: 14, fontWeight: '700' },
-  partyName:   { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  partySub:    { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  partyBalance:{ fontSize: 13, fontWeight: '700' },
-  fifoItem:    { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: '#EFF6FF' },
-  fifoBadge:   { backgroundColor: '#BFDBFE', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
+  partyName: {
+    fontSize: 15, fontWeight: '600', color: colors.textPrimary,
+  },
+  partySub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  partyBalance: { fontSize: 13, fontWeight: '700' },
+  fifoItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: 14,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+    backgroundColor: '#EFF6FF',
+  },
+  fifoBadge: {
+    backgroundColor: '#BFDBFE', borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 3,
+  },
   fifoBadgeText: { fontSize: 10, fontWeight: '700', color: '#1D4ED8' },
-  fifoTitle:   { fontSize: 14, fontWeight: '600', color: '#1D4ED8' },
-  fifoSub:     { fontSize: 12, color: '#3B82F6', marginTop: 2 },
-  invoiceItem: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
-  invoiceTop:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 },
-  invoiceNum:  { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
-  statusBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 },
-  statusDue:   { backgroundColor: '#FEE2E2' },
-  statusPartial:{ backgroundColor: '#FEF3C7' },
-  statusText:  { fontSize: 10, fontWeight: '700' },
-  statusTextDue:    { color: '#DC2626' },
-  statusTextPartial:{ color: '#D97706' },
+  fifoTitle:     { fontSize: 14, fontWeight: '600', color: '#1D4ED8' },
+  fifoSub:       { fontSize: 12, color: '#3B82F6', marginTop: 2 },
+  invoiceItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: 14,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  invoiceTop: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 8, marginBottom: 3,
+  },
+  invoiceNum: {
+    fontSize: 14, fontWeight: '600', color: colors.textPrimary,
+  },
+  statusBadge: {
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5,
+  },
+  statusDue:          { backgroundColor: '#FEE2E2' },
+  statusPartial:      { backgroundColor: '#FEF3C7' },
+  statusText:         { fontSize: 10, fontWeight: '700' },
+  statusTextDue:      { color: '#DC2626' },
+  statusTextPartial:  { color: '#D97706' },
   invoiceSub:  { fontSize: 12, color: colors.textSecondary },
-  invoiceBalance: { fontSize: 13, fontWeight: '600', color: '#DC2626', marginTop: 2 },
-  emptyPicker: { textAlign: 'center', color: colors.textTertiary, padding: 40, fontSize: 14 },
+  invoiceBalance: {
+    fontSize: 13, fontWeight: '600', color: '#DC2626', marginTop: 2,
+  },
+  emptyPicker: {
+    textAlign: 'center', color: colors.textTertiary,
+    padding: 40, fontSize: 14,
+  },
 });
