@@ -10,6 +10,45 @@ import { Ionicons } from '@expo/vector-icons';
 import { loadBusiness, saveBusiness, generateId } from '../../data/BusinessStore';
 import { colors } from '../../theme/colors';
 
+
+ // Calculate weighted average cost for this item from its full purchase history
+const getWeightedAvgCost = (item, biz) => {
+  let runningQty   = item.openingStock || 0;
+  let runningValue = runningQty * (item.openingStockRate || item.costPrice || 0);
+
+  // Add all purchase invoices
+  (biz.purchaseInvoices || []).forEach(inv => {
+    (inv.lines || []).forEach(line => {
+      const match =
+        line.description?.toLowerCase().trim() ===
+          item.name?.toLowerCase().trim() ||
+        line.itemId === item.id;
+      if (!match) return;
+      const qty  = parseFloat(line.qty)  || 0;
+      const rate = parseFloat(line.rate) || 0;
+      if (qty <= 0) return;
+      runningQty   += qty;
+      runningValue += qty * rate;
+    });
+  });
+
+  // Add journal inventory cost adjustments (no qty — pure cost additions)
+  (biz.journalEntries || []).forEach(je => {
+    (je.lines || []).forEach(line => {
+      if (line.accountCategory !== 'inventory') return;
+      if (line.accountId !== item.id) return;
+      const qty   = parseFloat(line.qty) || 0;
+      const debit = line.debit || 0;
+      if (qty === 0 && debit > 0) {
+        // Cost adjustment only — adds to value without qty
+        runningValue += debit;
+      }
+    });
+  });
+
+  return runningQty > 0 ? runningValue / runningQty : (item.costPrice || 0);
+};
+
 export default function InventoryWriteOffScreen({ route, navigation }) {
   const businessId = route?.params?.businessId;
   const [biz, setBiz] = useState(null);
@@ -47,43 +86,7 @@ export default function InventoryWriteOffScreen({ route, navigation }) {
     setShowForm(true);
   };
   
-  // Calculate weighted average cost for this item from its full purchase history
-const getWeightedAvgCost = (item, biz) => {
-  let runningQty   = item.openingStock || 0;
-  let runningValue = runningQty * (item.openingStockRate || item.costPrice || 0);
-
-  // Add all purchase invoices
-  (biz.purchaseInvoices || []).forEach(inv => {
-    (inv.lines || []).forEach(line => {
-      const match =
-        line.description?.toLowerCase().trim() ===
-          item.name?.toLowerCase().trim() ||
-        line.itemId === item.id;
-      if (!match) return;
-      const qty  = parseFloat(line.qty)  || 0;
-      const rate = parseFloat(line.rate) || 0;
-      if (qty <= 0) return;
-      runningQty   += qty;
-      runningValue += qty * rate;
-    });
-  });
-
-  // Add journal inventory cost adjustments (no qty — pure cost additions)
-  (biz.journalEntries || []).forEach(je => {
-    (je.lines || []).forEach(line => {
-      if (line.accountCategory !== 'inventory') return;
-      if (line.accountId !== item.id) return;
-      const qty   = parseFloat(line.qty) || 0;
-      const debit = line.debit || 0;
-      if (qty === 0 && debit > 0) {
-        // Cost adjustment only — adds to value without qty
-        runningValue += debit;
-      }
-    });
-  });
-
-  return runningQty > 0 ? runningValue / runningQty : (item.costPrice || 0);
-};
+ 
 
   const handleSave = async () => {
     if (!selectedItem) {
