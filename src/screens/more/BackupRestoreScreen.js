@@ -17,95 +17,77 @@ import {
 } from '../../data/BusinessStore';
 import { colors } from '../../theme/colors';
 
+// ─── Encryption ──────────────────────────────────────────────────────────────
+// Password is hashed with SHA-256 to derive a 64-char key.
+// Each character of the base64-encoded payload is XOR'd against the cycling key.
+// The loop runs inside setTimeout(0) to yield the UI thread before starting,
+// which prevents the loading indicator from freezing on iOS.
 
-// ─────────────────────────────────────────────────────────────
-// 🔥 OPTIMIZED ENCRYPTION (CHUNKED + FAST)
-// ─────────────────────────────────────────────────────────────
-
-const sleep = () => new Promise(resolve => setTimeout(resolve, 0));
-
-const encrypt = async (text, password, onProgress) => {
+const encrypt = async (text, password) => {
   const key = await digestStringAsync(CryptoDigestAlgorithm.SHA256, password);
-
-  const chunkSize = 2000;
-  let result = '';
-
-  for (let i = 0; i < text.length; i += chunkSize) {
-    const chunk = text.slice(i, i + chunkSize);
-
-    let encryptedChunk = '';
-    for (let j = 0; j < chunk.length; j++) {
-      const k = key.charCodeAt((i + j) % key.length);
-      encryptedChunk += (chunk.charCodeAt(j) ^ k)
-        .toString(16)
-        .padStart(2, '0');
-    }
-
-    result += encryptedChunk;
-
-    await sleep();
-
-    if (onProgress) {
-      onProgress(Math.round((i / text.length) * 100));
-    }
-  }
-
-  return result;
+  const b64 = btoa(unescape(encodeURIComponent(text)));
+  const keyLen = key.length;
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      const out = new Array(b64.length);
+      for (let i = 0; i < b64.length; i++) {
+        out[i] = (b64.charCodeAt(i) ^ key.charCodeAt(i % keyLen))
+          .toString(16).padStart(2, '0');
+      }
+      resolve(out.join(''));
+    }, 0);
+  });
 };
 
-const decrypt = async (hex, password, onProgress) => {
+// ─── Decryption ──────────────────────────────────────────────────────────────
+// Derives the same key from the password, reverses the XOR operation,
+// then decodes from base64 back to the original UTF-8 string.
+// Rejects if the output cannot be decoded — signals a wrong password.
+
+const decrypt = async (hex, password) => {
   const key = await digestStringAsync(CryptoDigestAlgorithm.SHA256, password);
-
-  const chunkSize = 4000;
-  let result = '';
-
-  for (let i = 0; i < hex.length; i += chunkSize) {
-    const chunk = hex.slice(i, i + chunkSize);
-
-    let decryptedChunk = '';
-    for (let j = 0; j < chunk.length; j += 2) {
-      const byte = parseInt(chunk.substr(j, 2), 16);
-      const k = key.charCodeAt(((i + j) / 2) % key.length);
-      decryptedChunk += String.fromCharCode(byte ^ k);
-    }
-
-    result += decryptedChunk;
-
-    await sleep();
-
-    if (onProgress) {
-      onProgress(Math.round((i / hex.length) * 100));
-    }
-  }
-
-  return result;
+  const keyLen = key.length;
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      try {
+        const chars = new Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+          chars[i / 2] = String.fromCharCode(
+            parseInt(hex.substr(i, 2), 16) ^ key.charCodeAt((i / 2) % keyLen)
+          );
+        }
+        resolve(decodeURIComponent(escape(atob(chars.join('')))));
+      } catch (e) {
+        reject(e);
+      }
+    }, 0);
+  });
 };
 
-
-// ─────────────────────────────────────────────────────────────
-// SCREEN
-// ─────────────────────────────────────────────────────────────
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function BackupRestoreScreen({ route, navigation }) {
   const businessId = route?.params?.businessId;
 
+  // ─── State ─────────────────────────────────────────────────────────────────
   const [biz, setBiz] = useState(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
-
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [modalMode, setModalMode] = useState('backup');
+  const [modalMode, setModalMode] = useState('backup'); // 'backup' | 'restore'
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [pendingFile, setPendingFile] = useState(null);
 
+  // ─── Load business on screen focus ─────────────────────────────────────────
   useFocusEffect(
     useCallback(() => {
       if (businessId) loadBusiness(businessId).then(setBiz);
     }, [businessId])
   );
 
+  // ─── Backup: open password modal ───────────────────────────────────────────
   const startBackup = () => {
     setModalMode('backup');
     setPassword('');
@@ -114,6 +96,7 @@ export default function BackupRestoreScreen({ route, navigation }) {
     setShowPasswordModal(true);
   };
 
+  // ─── Backup: encrypt and export after password confirmed ───────────────────
   const handleBackup = async () => {
     if (password.length < 4) {
       Alert.alert('Weak password', 'Use at least 4 characters.');
@@ -129,15 +112,13 @@ export default function BackupRestoreScreen({ route, navigation }) {
     setProgress(0);
 
     try {
-      // 🔥 reduce size (optional optimization)
+      // Serialise business JSON, stripping null and empty string values to reduce size
       const businessData = JSON.stringify(biz, (k, v) =>
         v === null || v === '' ? undefined : v
       );
 
-      const checksum = await digestStringAsync(
-        CryptoDigestAlgorithm.SHA256,
-        businessData
-      );
+      // Embed SHA-256 checksum for integrity verification on restore
+      const checksum = await digestStringAsync(CryptoDigestAlgorithm.SHA256, businessData);
 
       const payload = JSON.stringify({
         version: 3,
@@ -147,16 +128,18 @@ export default function BackupRestoreScreen({ route, navigation }) {
         businessName: biz.meta?.name || 'Business',
       });
 
-      const encrypted = await encrypt(payload, password, setProgress);
+      // Encrypt the payload using the password-derived XOR cipher
+      const encrypted = await encrypt(payload, password);
 
-      const fileName = `${(biz.meta?.name || 'backup').replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.smartbiz`;
+      const fileName = `${(biz.meta?.name || 'backup').replace(/\s+/g, '_')}_${
+        new Date().toISOString().split('T')[0]
+      }.smartbiz`;
 
+      // Write encrypted content to device cache as a .smartbiz file
       const fileUri = FileSystem.cacheDirectory + fileName;
+      await FileSystem.writeAsStringAsync(fileUri, encrypted, { encoding: 'utf8' });
 
-      await FileSystem.writeAsStringAsync(fileUri, encrypted, {
-        encoding: 'utf8',
-      });
-
+      // Open iOS/Android native share sheet so user can save to Files, iCloud, etc.
       await Sharing.shareAsync(fileUri, {
         mimeType: 'application/octet-stream',
         dialogTitle: `Save ${fileName}`,
@@ -171,28 +154,37 @@ export default function BackupRestoreScreen({ route, navigation }) {
     }
   };
 
+  // ─── Restore: open file picker then show password modal ────────────────────
   const startRestore = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: '*/*',
-      copyToCacheDirectory: true,
-    });
+    try {
+      // Use UTI array so iOS opens the Files app for all file types
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['public.data', 'public.content', 'public.item', '*/*'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
 
-    if (result.canceled || !result.assets?.[0]) return;
+      if (result.canceled || !result.assets?.[0]) return;
 
-    const file = result.assets[0];
+      const file = result.assets[0];
 
-    if (!file.name?.endsWith('.smartbiz')) {
-      Alert.alert('Invalid file', 'Select a .smartbiz file.');
-      return;
+      // Validate file extension before proceeding
+      if (!file.name?.endsWith('.smartbiz')) {
+        Alert.alert('Invalid file', 'Please select a .smartbiz backup file.');
+        return;
+      }
+
+      setPendingFile(file);
+      setModalMode('restore');
+      setPassword('');
+      setProgress(0);
+      setShowPasswordModal(true);
+    } catch (e) {
+      Alert.alert('Error', 'Could not open file picker: ' + e.message);
     }
-
-    setPendingFile(file);
-    setModalMode('restore');
-    setPassword('');
-    setProgress(0);
-    setShowPasswordModal(true);
   };
 
+  // ─── Restore: decrypt and import after password entered ────────────────────
   const handleRestore = async () => {
     if (!password) {
       Alert.alert('Password required');
@@ -208,42 +200,39 @@ export default function BackupRestoreScreen({ route, navigation }) {
 
       let payload;
 
+      // Attempt decryption — failure here means wrong password or corrupted file
       try {
-        const decrypted = await decrypt(encrypted, password, setProgress);
+        const decrypted = await decrypt(encrypted, password);
         payload = JSON.parse(decrypted);
       } catch {
-        Alert.alert('Wrong password or corrupted file');
+        Alert.alert('Wrong password', 'Could not decrypt this backup. Check your password and try again.');
         setLoading(false);
         return;
       }
 
+      // Verify SHA-256 checksum to detect tampering or corruption
       const expectedChecksum = await digestStringAsync(
-        CryptoDigestAlgorithm.SHA256,
-        payload.data
+        CryptoDigestAlgorithm.SHA256, payload.data
       );
-
       if (expectedChecksum !== payload.checksum) {
-        Alert.alert('Corrupted backup');
+        Alert.alert('Corrupted backup', 'Checksum verification failed. The file may be corrupted.');
         setLoading(false);
         return;
       }
 
       const restoredBiz = JSON.parse(payload.data);
 
+      // Save restored business and update the business index
       await saveBusiness(restoredBiz);
-
       const index = await getBusinessIndex();
       const i = index.findIndex(b => b.id === restoredBiz.id);
-
       const entry = {
         id: restoredBiz.id,
         name: restoredBiz.meta.name,
         updatedAt: new Date().toISOString(),
       };
-
       if (i >= 0) index[i] = entry;
       else index.push(entry);
-
       await saveBusinessIndex(index);
 
       Alert.alert('Restored ✓', 'Backup restored successfully.', [
@@ -258,87 +247,107 @@ export default function BackupRestoreScreen({ route, navigation }) {
     }
   };
 
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <SafeAreaView style={styles.container}>
+
+      {/* ── Header ── */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Backup & Restore</Text>
-        <View style={{ width: 22 }} />
+        <View style={{ width: 38 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* Security banner */}
+        {/* ── Security banner ── */}
         <View style={styles.securityBanner}>
           <View style={styles.securityIconWrap}>
-            <Ionicons name="shield-checkmark" size={28} color="#059669" />
+            <Ionicons name="shield-checkmark" size={26} color="#059669" />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.securityTitle}>Encrypted Backups</Text>
             <Text style={styles.securitySub}>
-              Backups are encrypted with a password-derived keystream cipher.
-              Without the correct password the data cannot be read.
+              Your data is encrypted with a password-derived SHA-256 keystream cipher.
+              Without the correct password the file cannot be read.
             </Text>
           </View>
         </View>
 
-           <ScrollView contentContainerStyle={styles.content}>
-
-        <TouchableOpacity style={styles.btn} onPress={startBackup} disabled={loading}>
-          <Text style={styles.btnText}>Create Backup</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.btn} onPress={startRestore} disabled={loading}>
-          <Text style={styles.btnText}>Restore Backup</Text>
-        </TouchableOpacity>
-
-        {loading && (
-          <View style={{ marginTop: 20 }}>
-            <ActivityIndicator size="large" />
-            <Text style={{ textAlign: 'center', marginTop: 10 }}>
-              Processing... {progress}%
-            </Text>
+        {/* ── Create backup card ── */}
+        <Text style={styles.sectionLabel}>Create backup</Text>
+        <View style={styles.card}>
+          <View style={styles.cardRow}>
+            <View style={[styles.iconWrap, { backgroundColor: '#EFF6FF' }]}>
+              <Ionicons name="cloud-upload-outline" size={24} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Export encrypted backup</Text>
+              <Text style={styles.cardSub}>
+                {biz
+                  ? `"${biz.meta?.name}" · ${biz.salesInvoices?.length || 0} invoices · ${biz.customers?.length || 0} customers`
+                  : 'Loading business data...'}
+              </Text>
+            </View>
           </View>
-        )}
 
-      </ScrollView>
-
-      {/* Password Modal */}
-      <Modal visible={showPasswordModal} transparent>
-        <View style={styles.modal}>
-          <TextInput
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!passwordVisible}
-            style={styles.input}
-          />
-
-          {modalMode === 'backup' && (
-            <TextInput
-              placeholder="Confirm Password"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry={!passwordVisible}
-              style={styles.input}
-            />
+          {/* Show progress indicator while encrypting */}
+          {loading && modalMode === 'backup' && (
+            <View style={styles.progressRow}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.progressText}>Encrypting... {progress}%</Text>
+            </View>
           )}
 
           <TouchableOpacity
-            style={styles.btn}
-            onPress={modalMode === 'backup' ? handleBackup : handleRestore}
+            style={[styles.actionBtn, (loading || !biz) && styles.actionBtnDisabled]}
+            onPress={startBackup}
+            disabled={loading || !biz}
           >
-            <Text style={styles.btnText}>Continue</Text>
+            <Ionicons name="lock-closed-outline" size={18} color="#fff" />
+            <Text style={styles.actionBtnText}>Create Encrypted Backup</Text>
           </TouchableOpacity>
-
         </View>
-      </Modal>
 
+        {/* ── Restore card ── */}
+        <Text style={styles.sectionLabel}>Restore backup</Text>
+        <View style={styles.card}>
+          <View style={styles.cardRow}>
+            <View style={[styles.iconWrap, { backgroundColor: '#FEF3C7' }]}>
+              <Ionicons name="cloud-download-outline" size={24} color="#D97706" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Import from backup file</Text>
+              <Text style={styles.cardSub}>
+                Select a .smartbiz file and enter your backup password to restore
+              </Text>
+            </View>
+          </View>
 
-        {/* How it works */}
+          {/* Show progress indicator while decrypting */}
+          {loading && modalMode === 'restore' && (
+            <View style={styles.progressRow}>
+              <ActivityIndicator size="small" color="#D97706" />
+              <Text style={styles.progressText}>Decrypting... {progress}%</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.actionBtnOutline, loading && styles.actionBtnDisabled]}
+            onPress={startRestore}
+            disabled={loading}
+          >
+            <Ionicons name="key-outline" size={18} color={colors.primary} />
+            <Text style={[styles.actionBtnText, { color: colors.primary }]}>
+              Restore from File
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── How it works section ── */}
         <Text style={styles.sectionLabel}>How it works</Text>
         <View style={styles.infoCard}>
           {[
@@ -347,7 +356,7 @@ export default function BackupRestoreScreen({ route, navigation }) {
               color: '#8B5CF6',
               bg: '#F5F3FF',
               title: 'Password-derived encryption',
-              desc: 'Your password is hashed with SHA-256 to generate a 128-character encryption key. The password itself is never stored.',
+              desc: 'Your password is hashed with SHA-256 to generate the encryption key. The password is never stored in the file.',
             },
             {
               icon: 'key-outline',
@@ -357,7 +366,7 @@ export default function BackupRestoreScreen({ route, navigation }) {
               desc: 'Data is XOR-encrypted against a keystream derived from your password. Wrong password produces unreadable output.',
             },
             {
-              icon: 'checkmark-shield-outline',
+              icon: 'shield-checkmark-outline',
               color: '#059669',
               bg: '#ECFDF5',
               title: 'Integrity verification',
@@ -378,90 +387,84 @@ export default function BackupRestoreScreen({ route, navigation }) {
 
       </ScrollView>
 
-      {/* Password Modal */}
-      <Modal visible={showPasswordModal} animationType="slide" transparent>
+      {/* ── Password modal ──────────────────────────────────────────────────────
+          No backdrop tap to dismiss — user must complete the action.
+          transparent + no animationType avoids iOS share sheet conflict.      */}
+      <Modal visible={showPasswordModal} transparent>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <TouchableOpacity
-            style={styles.modalOverlay}
-            activeOpacity={1}
-            onPress={() => setShowPasswordModal(false)}
-          >
-            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-              <View style={styles.modalSheet}>
-                <View style={styles.modalHandle} />
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalSheet}>
 
-                <Text style={styles.modalTitle}>
-                  {modalMode === 'backup' ? '🔐 Set backup password' : '🔑 Enter backup password'}
-                </Text>
-                <Text style={styles.modalSub}>
-                  {modalMode === 'backup'
-                    ? 'Choose a password to encrypt your backup. You will need it to restore.'
-                    : 'Enter the password you used when creating this backup.'}
-                </Text>
+              <View style={styles.modalHandle} />
 
-                <View style={styles.passwordRow}>
+              {/* Modal title changes based on backup or restore mode */}
+              <Text style={styles.modalTitle}>
+                {modalMode === 'backup' ? '🔐 Set backup password' : '🔑 Enter backup password'}
+              </Text>
+              <Text style={styles.modalSub}>
+                {modalMode === 'backup'
+                  ? 'Choose a password to encrypt your backup. You will need it to restore.'
+                  : 'Enter the password you used when creating this backup.'}
+              </Text>
+
+              {/* Password input with show/hide toggle */}
+              <View style={styles.passwordRow}>
+                <TextInput
+                  style={styles.passwordInput}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="Enter password"
+                  placeholderTextColor={colors.textTertiary}
+                  secureTextEntry={!passwordVisible}
+                  autoFocus
+                />
+                <TouchableOpacity
+                  style={styles.eyeBtn}
+                  onPress={() => setPasswordVisible(v => !v)}
+                >
+                  <Ionicons
+                    name={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
+                    size={20}
+                    color={colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Confirm password field shown only in backup mode */}
+              {modalMode === 'backup' && (
+                <View style={[styles.passwordRow, { marginTop: 10 }]}>
                   <TextInput
                     style={styles.passwordInput}
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="Enter password"
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="Confirm password"
                     placeholderTextColor={colors.textTertiary}
                     secureTextEntry={!passwordVisible}
-                    autoFocus
                   />
-                  <TouchableOpacity
-                    style={styles.eyeBtn}
-                    onPress={() => setPasswordVisible(v => !v)}
-                  >
-                    <Ionicons
-                      name={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
-                      size={20}
-                      color={colors.textSecondary}
-                    />
-                  </TouchableOpacity>
                 </View>
+              )}
 
-                {modalMode === 'backup' && (
-                  <View style={[styles.passwordRow, { marginTop: 10 }]}>
-                    <TextInput
-                      style={styles.passwordInput}
-                      value={confirmPassword}
-                      onChangeText={setConfirmPassword}
-                      placeholder="Confirm password"
-                      placeholderTextColor={colors.textTertiary}
-                      secureTextEntry={!passwordVisible}
-                    />
-                  </View>
-                )}
+              {/* Action button triggers backup or restore depending on mode */}
+              <TouchableOpacity
+                style={[styles.actionBtn, { marginTop: 20 }]}
+                onPress={modalMode === 'backup' ? handleBackup : handleRestore}
+                disabled={loading}
+              >
+                <Ionicons
+                  name={modalMode === 'backup' ? 'cloud-upload-outline' : 'cloud-download-outline'}
+                  size={18}
+                  color="#fff"
+                />
+                <Text style={styles.actionBtnText}>
+                  {modalMode === 'backup' ? 'Encrypt & Export' : 'Decrypt & Restore'}
+                </Text>
+              </TouchableOpacity>
 
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity
-                    style={styles.modalCancel}
-                    onPress={() => setShowPasswordModal(false)}
-                  >
-                    <Text style={styles.modalCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.modalConfirm}
-                    onPress={modalMode === 'backup' ? handleBackup : handleRestore}
-                  >
-                    <Ionicons
-                      name={modalMode === 'backup' ? 'cloud-upload-outline' : 'cloud-download-outline'}
-                      size={18}
-                      color="#fff"
-                    />
-                    <Text style={styles.modalConfirmText}>
-                      {modalMode === 'backup' ? 'Encrypt & Export' : 'Decrypt & Restore'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-              </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
+            </View>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -469,61 +472,74 @@ export default function BackupRestoreScreen({ route, navigation }) {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 14,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
+  backBtn: { padding: 4 },
   title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
-  content: { padding: 16, paddingBottom: 48, gap: 4 },
+
+  content: { padding: 16, paddingBottom: 48 },
+
   securityBanner: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 14,
-    backgroundColor: '#ECFDF5', borderRadius: 16, padding: 16,
+    backgroundColor: '#ECFDF5', borderRadius: 14, padding: 16,
     marginBottom: 20, borderWidth: 1, borderColor: '#A7F3D0',
   },
   securityIconWrap: {
-    width: 48, height: 48, borderRadius: 14,
+    width: 44, height: 44, borderRadius: 12,
     backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center',
   },
   securityTitle: { fontSize: 14, fontWeight: '700', color: '#065F46', marginBottom: 4 },
   securitySub: { fontSize: 12, color: '#047857', lineHeight: 18 },
+
   sectionLabel: {
     fontSize: 11, fontWeight: '700', color: colors.textSecondary,
     textTransform: 'uppercase', letterSpacing: 0.6,
-    marginBottom: 8, marginLeft: 4, marginTop: 8,
+    marginBottom: 8, marginLeft: 2, marginTop: 4,
   },
+
   card: {
-    backgroundColor: '#fff', borderRadius: 16, padding: 16,
-    marginBottom: 20, shadowColor: '#000',
-    shadowOpacity: 0.04, shadowRadius: 8, elevation: 2, gap: 14,
+    backgroundColor: '#fff', borderRadius: 14, padding: 16,
+    marginBottom: 20, gap: 14,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
   },
   cardRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   iconWrap: {
-    width: 48, height: 48, borderRadius: 13,
+    width: 46, height: 46, borderRadius: 12,
     justifyContent: 'center', alignItems: 'center',
   },
   cardTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: 3 },
   cardSub: { fontSize: 12, color: colors.textSecondary, lineHeight: 18 },
+
   progressRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: colors.background, borderRadius: 10, padding: 10,
   },
   progressText: { fontSize: 13, color: colors.textSecondary },
+
   actionBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 13,
+    gap: 8, backgroundColor: colors.primary,
+    borderRadius: 12, paddingVertical: 13,
   },
-  actionBtnSecondary: {
-    backgroundColor: '#fff', borderWidth: 1.5, borderColor: colors.primary,
+  actionBtnOutline: {
+    backgroundColor: '#fff',
+    borderWidth: 1.5, borderColor: colors.primary,
   },
-  actionBtnDisabled: { opacity: 0.5 },
+  actionBtnDisabled: { opacity: 0.45 },
   actionBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+
   infoCard: {
-    backgroundColor: '#fff', borderRadius: 16,
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
-    overflow: 'hidden',
+    backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden',
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
   },
   infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14 },
   infoRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.border },
@@ -533,12 +549,14 @@ const styles = StyleSheet.create({
   },
   infoTitle: { fontSize: 13, fontWeight: '700', color: colors.textPrimary, marginBottom: 3 },
   infoDesc: { fontSize: 12, color: colors.textSecondary, lineHeight: 18 },
+
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end',
   },
   modalSheet: {
-    backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 24, paddingBottom: 40,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, paddingBottom: 44,
   },
   modalHandle: {
     width: 40, height: 4, borderRadius: 2, backgroundColor: '#E5E7EB',
@@ -546,6 +564,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, marginBottom: 8 },
   modalSub: { fontSize: 14, color: colors.textSecondary, lineHeight: 20, marginBottom: 20 },
+
   passwordRow: {
     flexDirection: 'row', alignItems: 'center',
     borderWidth: 1.5, borderColor: colors.border, borderRadius: 12,
@@ -555,36 +574,4 @@ const styles = StyleSheet.create({
     fontSize: 15, color: colors.textPrimary,
   },
   eyeBtn: { paddingHorizontal: 14 },
-  modalButtons: { flexDirection: 'row', gap: 10, marginTop: 20 },
-  modalCancel: {
-    flex: 1, paddingVertical: 14, borderRadius: 12,
-    borderWidth: 1.5, borderColor: colors.border, alignItems: 'center',
-  },
-  modalCancelText: { fontSize: 15, fontWeight: '600', color: colors.textSecondary },
-  modalConfirm: {
-    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 14,
-  },
-  modalConfirmText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-   container: { flex: 1, justifyContent: 'center' },
-  content: { padding: 20 },
-  btn: {
-    backgroundColor: '#2563EB',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  btnText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' },
-  modal: {
-    backgroundColor: '#fff',
-    margin: 30,
-    padding: 20,
-    borderRadius: 10,
-  },
-  input: {
-    borderWidth: 1,
-    padding: 10,
-    marginBottom: 10,
-    borderRadius: 8,
-  },
 });
